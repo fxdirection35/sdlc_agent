@@ -2,7 +2,7 @@
 # SPA - one command on one team-internal server.
 #
 #   cp config.example.yaml config.yaml      # then edit models / budget
-#   printf 'POSTGRES_PASSWORD=...\nANTHROPIC_API_KEY=sk-ant-...\n' > .env
+#   printf 'POSTGRES_PASSWORD=...\nDEEPSEEK_API_KEY=sk-...\n' > .env
 #   docker compose up --build -d            # http://<host>:8000
 #
 # (.env is gitignored; Compose reads it automatically from this directory.)
@@ -54,9 +54,10 @@ services:
       # Host is the db SERVICE name, never localhost - inside the api
       # container, localhost is the container itself.
       SDLC_DATABASE_URL: postgresql://sdlc:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/sdlc
-      # Named exactly as config.yaml's providers.anthropic.api_key_env says;
-      # missing fails `up`, same as the database password above.
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in .env}
+      # Named exactly as config.yaml's providers.deepseek.api_key_env says;
+      # missing fails `up`, same as the database password above. Routing a
+      # deployment back to Claude means changing this AND the config's roles.
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in .env}
     volumes:
       - ./config.yaml:/app/config/config.yaml:ro
     ports:

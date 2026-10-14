@@ -44,9 +44,10 @@ _COMPOSE = _ROOT / "compose.yaml"
 _DOCKERFILE = _ROOT / "Dockerfile"
 _DOCKERIGNORE = _ROOT / ".dockerignore"
 
-#: A committed key would match this; a variable NAME (the only thing allowed
-#: in git, HARNESS_SPEC.md section 4.1) does not.
-_SECRET_PATTERN = re.compile(r"sk-ant-[A-Za-z0-9_-]{8,}")
+#: A committed key would match this (Anthropic- or DeepSeek-shaped); a
+#: variable NAME (the only thing allowed in git, HARNESS_SPEC.md section 4.1)
+#: does not.
+_SECRET_PATTERN = re.compile(r"sk-[A-Za-z0-9_-]{16,}")
 
 
 def _compose() -> dict[str, Any]:
@@ -118,8 +119,8 @@ def test_credentials_are_references_not_values() -> None:
     assert str(db_env["POSTGRES_PASSWORD"]).startswith("${POSTGRES_PASSWORD:?"), (
         "db password must fail `up` when unset"
     )
-    api_key = _api_environment()["ANTHROPIC_API_KEY"]
-    assert str(api_key).startswith("${ANTHROPIC_API_KEY:?")
+    api_key = _api_environment()["DEEPSEEK_API_KEY"]
+    assert str(api_key).startswith("${DEEPSEEK_API_KEY:?")
     url = _api_environment()[DATABASE_URL_ENV]
     assert isinstance(url, str)
     assert re.search(r"\$\{POSTGRES_PASSWORD:\?", url), "URL must not inline the password"
@@ -191,7 +192,7 @@ def test_compose_config_validates() -> None:
     completed = subprocess.run(
         ["docker", "compose", "config", "--quiet"],
         cwd=_ROOT,
-        env={**os.environ, "POSTGRES_PASSWORD": "x", "ANTHROPIC_API_KEY": "y"},
+        env={**os.environ, "POSTGRES_PASSWORD": "x", "DEEPSEEK_API_KEY": "y"},
         capture_output=True,
         text=True,
         timeout=60,

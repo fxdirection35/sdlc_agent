@@ -13,19 +13,23 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 from sdlc_agent.service.app import CONFIG_PATH_ENV
 
 #: The example config is loadable and key-free (CLAUDE.md: config files carry
 #: variable NAMES, never secrets), which makes it the right fixture here.
-EXAMPLE_CONFIG = "config.example.yaml"
+#: Absolute, because some subprocesses run from outside the repository (see
+#: run_service_code) where a relative name would resolve to nothing.
+EXAMPLE_CONFIG = str(Path(__file__).resolve().parents[2] / "config.example.yaml")
 
-#: The provider the example config names for every role. The happy-path
+#: The provider the example config names for every role (deepseek since the
+#: platform default switched; see config.example.yaml). The happy-path
 #: subprocesses set a dummy value explicitly so they pass identically on hosts
 #: with and without a real key; the credential-refusal test removes it with
 #: equal care. Never a real secret: this value is never sent anywhere.
-API_KEY_ENV = "ANTHROPIC_API_KEY"
-DUMMY_KEY = "sk-ant-startup-check-only"
+API_KEY_ENV = "DEEPSEEK_API_KEY"
+DUMMY_KEY = "sk-deepseek-startup-check-only"
 
 Completed = subprocess.CompletedProcess[str]
 
@@ -33,12 +37,10 @@ Completed = subprocess.CompletedProcess[str]
 def run_service_code(
     code: str,
     env_extra: dict[str, str] | None = None,
-    drop: tuple[str, ...] = (),
 ) -> Completed:
+    """Run assembly code in a subprocess with a controlled environment."""
     env = {**os.environ, CONFIG_PATH_ENV: EXAMPLE_CONFIG, API_KEY_ENV: DUMMY_KEY}
     env.update(env_extra or {})
-    for name in drop:
-        env.pop(name, None)
     return subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True,
@@ -95,8 +97,19 @@ class TestUvicornTarget:
 
     def test_a_missing_credential_refuses_to_boot(self) -> None:
         """A keyless service would pass /api/health and then fail every run -
-        green but broken. Boot must refuse, naming every missing variable."""
-        completed = run_service_code("import sdlc_agent.service.main", drop=(API_KEY_ENV,))
+        green but broken. Boot must refuse, naming every missing variable.
+
+        The variable is set to EMPTY rather than dropped: litellm loads
+        ``.env`` at import time, and python-dotenv walks up the tree from
+        litellm's own install directory - inside this repository's .venv -
+        so a subprocess finds the repository's real ``.env`` no matter its
+        working directory, and a merely-dropped key is resurrected. An
+        existing variable survives that load (load_dotenv never overrides),
+        and an empty value is refused exactly like a missing one."""
+        completed = run_service_code(
+            "import sdlc_agent.service.main",
+            env_extra={API_KEY_ENV: ""},
+        )
 
         assert completed.returncode != 0
         assert API_KEY_ENV in completed.stderr

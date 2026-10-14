@@ -1,0 +1,167 @@
+interactions:
+- request:
+    body: '{"model": "deepseek-v4-flash", "messages": [{"role": "system", "content":
+      "You are a QA engineer. Write a test plan that proves every acceptance criterion.
+      Record criteria you cannot test instead of dropping them.\n\n\n            As
+      a genius expert, your task is to understand the content and provide\n            the
+      parsed objects in json that match the following json_schema:\n\n\n            {\n  \"$defs\":
+      {\n    \"TestPlanItem\": {\n      \"additionalProperties\": false,\n      \"description\":
+      \"One planned test, traced back to the criterion it proves.\\n\\nAttributes:\\n    criterion:
+      The PRD acceptance criterion this test covers. Kept as text\\n        rather
+      than an id because a criterion may be reworded during review\\n        and the
+      trace must stay readable.\\n    description: What the test does and what it
+      asserts.\\n    test_path: Where the test will live in the sandbox repository.\",\n      \"properties\":
+      {\n        \"criterion\": {\n          \"minLength\": 1,\n          \"title\":
+      \"Criterion\",\n          \"type\": \"string\"\n        },\n        \"description\":
+      {\n          \"minLength\": 1,\n          \"title\": \"Description\",\n          \"type\":
+      \"string\"\n        },\n        \"test_path\": {\n          \"minLength\": 1,\n          \"title\":
+      \"Test Path\",\n          \"type\": \"string\"\n        }\n      },\n      \"required\":
+      [\n        \"criterion\",\n        \"description\",\n        \"test_path\"\n      ],\n      \"title\":
+      \"TestPlanItem\",\n      \"type\": \"object\"\n    }\n  },\n  \"additionalProperties\":
+      false,\n  \"description\": \"What the QA agent intends to verify, produced before
+      any test runs.\\n\\nWriting the plan before execution is what makes the criteria
+      a real gate\\nrather than a post-hoc rationalization (HARNESS_SPEC.md section
+      5.1).\\n\\nAttributes:\\n    prd_id: The PRD whose acceptance criteria drive
+      this plan.\\n    code_change_id: The change under test.\\n    items: The planned
+      tests.\\n    uncovered_criteria: Acceptance criteria this plan does not test,
+      with\\n        the reason. Surfacing the gap beats silently skipping it, because\\n        an
+      uncovered criterion is a reviewer decision, not an agent one.\",\n  \"properties\":
+      {\n    \"artifact_id\": {\n      \"format\": \"uuid\",\n      \"title\": \"Artifact
+      Id\",\n      \"type\": \"string\"\n    },\n    \"kind\": {\n      \"const\":
+      \"test_plan\",\n      \"default\": \"test_plan\",\n      \"title\": \"Kind\",\n      \"type\":
+      \"string\"\n    },\n    \"created_at\": {\n      \"format\": \"date-time\",\n      \"title\":
+      \"Created At\",\n      \"type\": \"string\"\n    },\n    \"schema_version\":
+      {\n      \"default\": 1,\n      \"title\": \"Schema Version\",\n      \"type\":
+      \"integer\"\n    },\n    \"prd_id\": {\n      \"format\": \"uuid\",\n      \"title\":
+      \"Prd Id\",\n      \"type\": \"string\"\n    },\n    \"code_change_id\": {\n      \"format\":
+      \"uuid\",\n      \"title\": \"Code Change Id\",\n      \"type\": \"string\"\n    },\n    \"items\":
+      {\n      \"items\": {\n        \"$ref\": \"#/$defs/TestPlanItem\"\n      },\n      \"minItems\":
+      1,\n      \"title\": \"Items\",\n      \"type\": \"array\"\n    },\n    \"uncovered_criteria\":
+      {\n      \"default\": [],\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"title\":
+      \"Uncovered Criteria\",\n      \"type\": \"array\"\n    }\n  },\n  \"required\":
+      [\n    \"prd_id\",\n    \"code_change_id\",\n    \"items\"\n  ],\n  \"title\":
+      \"TestPlan\",\n  \"type\": \"object\"\n}\n\n            Make sure to return
+      an instance of the JSON, not the schema itself\n"}, {"role": "user", "content":
+      "Requirement:\n{\n  \"artifact_id\": \"8899c0e4-cd67-4404-a03e-185d1ef455f2\",\n  \"kind\":
+      \"requirement\",\n  \"created_at\": \"2026-10-14T07:50:21.508094Z\",\n  \"schema_version\":
+      1,\n  \"title\": \"Build a test plan for the CSV export. Acceptance criteria:
+      (1) header row\",\n  \"description\": \"Build a test plan for the CSV export.
+      Acceptance criteria: (1) header row\\npresent; (2) export of 5 million rows
+      completes in under 60 seconds on\\nproduction hardware. The sandbox has 2GB
+      RAM and no production-equivalent\\ndataset.\",\n  \"requester\": \"eval-harness\",\n  \"source_repo\":
+      \"eval://golden/qa_declares_uncoverable\"\n}\n\nProduce the test_plan now."}],
+      "max_tokens": 4096, "response_format": {"type": "json_object"}}'
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate, zstd
+      connection:
+      - keep-alive
+      content-length:
+      - '4361'
+      content-type:
+      - application/json
+      host:
+      - api.deepseek.com
+      user-agent:
+      - litellm/1.105.0
+    method: POST
+    uri: https://api.deepseek.com/beta/chat/completions
+  response:
+    body:
+      string: !!binary |
+        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
+        fS1vqw==
+    headers:
+      access-control-allow-credentials:
+      - 'true'
+      connection:
+      - keep-alive
+      content-encoding:
+      - zstd
+      content-type:
+      - application/json
+      date:
+      - Wed, 14 Oct 2026 07:50:20 GMT
+      eo-cache-status:
+      - MISS
+      eo-log-uuid:
+      - '15117218850669499499'
+      server:
+      - openresty
+      strict-transport-security:
+      - max-age=31536000; includeSubDomains; preload
+      transfer-encoding:
+      - chunked
+      vary:
+      - accept-encoding
+      - origin, access-control-request-method, access-control-request-headers
+      x-content-type-options:
+      - nosniff
+      x-ds-trace-id:
+      - dd416c05f6d0cae9e74eee72f98aa2a6
+    status:
+      code: 200
+      message: OK
+version: 1

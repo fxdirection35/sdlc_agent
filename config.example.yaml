@@ -4,25 +4,28 @@
 # NAME of the environment variable carrying each key, never a key itself.
 # Export the variables in your shell or a .env file (both gitignored):
 #
-#   export ANTHROPIC_API_KEY=sk-ant-...
 #   export DEEPSEEK_API_KEY=sk-...
+#   export ANTHROPIC_API_KEY=sk-ant-...   # only if you route roles to Claude
 #
 # Roles and providers are validated at load: a role pointing at an undefined
 # provider, or a missing role, fails here rather than at the first LLM call.
 
 providers:
+  # The default route: connects directly from within China and costs a
+  # fraction of Claude. instructor_mode is required (measured against the
+  # real API): DeepSeek rejects json_schema's response_format API-wide and
+  # its thinking models reject forced tool_choice, so structured output
+  # travels as json_object.
+  deepseek:
+    api_key_env: DEEPSEEK_API_KEY
+    instructor_mode: json
+
+  # Kept defined for the switch-back path: point roles back here to run on
+  # Claude. No key is required while no role references this provider.
+  # instructor_mode defaults to json_schema, which is what Anthropic serves.
   anthropic:
     api_key_env: ANTHROPIC_API_KEY
 
-  # Commented out by default. Uncomment to route some roles through DeepSeek,
-  # which costs a fraction of Claude and connects directly from within China.
-  # instructor_mode is required there (measured against the real API): DeepSeek
-  # rejects json_schema's response_format API-wide and its thinking models
-  # reject forced tool_choice, so structured output travels as json_object.
-  # deepseek:
-  #   api_key_env: DEEPSEEK_API_KEY
-  #   instructor_mode: json
-  #
   # For a self-hosted or proxied OpenAI-compatible gateway, give the entry a
   # friendly key and set litellm_prefix to what litellm needs for routing:
   # our-gateway:
@@ -31,46 +34,37 @@ providers:
   #   base_url: https://gateway.internal/v1
 
 roles:
-  # Judgment-heavy roles get the strongest model. PRD and design quality
-  # determine everything downstream, and both pass through a human gate, so
-  # the cost is bounded by a person reading it anyway.
+  # All roles on deepseek-v4-flash, the measured-working default (a full PRD
+  # turn validated end to end at ~$0.003). Split judgment-heavy roles onto
+  # deepseek-reasoner or Claude when quality demands it - per-role providers
+  # are the point of this file. No `effort` here: reasoning_effort is not a
+  # DeepSeek parameter; omit rather than send something unmeasured.
   product_manager:
-    provider: anthropic
-    model: claude-opus-5-5      # $4 / $20 per MTok
-    effort: high
+    provider: deepseek
+    model: deepseek-v4-flash
 
   architect:
-    provider: anthropic
-    model: claude-opus-5-5
-    effort: high
+    provider: deepseek
+    model: deepseek-v4-flash
 
-  # Coding responds strongly to effort, so this stays high; Sonnet 5.5 is the
-  # current coding default at half Opus's price.
   developer:
-    provider: anthropic
-    model: claude-sonnet-5-5    # $2 / $10 per MTok
-    effort: high
+    provider: deepseek
+    model: deepseek-v4-flash
 
-  # QA plans from explicit acceptance criteria and then executes, so it needs
-  # less judgment than the roles above. Deliberately NOT haiku: deciding what
-  # to test is the platform's differentiating step, and it is where a weak
-  # model produces a green suite that proves nothing.
   qa:
-    provider: anthropic
-    model: claude-sonnet-5-5
-    effort: medium
+    provider: deepseek
+    model: deepseek-v4-flash
 
-  # `temperature` is omitted everywhere on purpose. Current-generation Claude
-  # models reject any non-default sampling value with a 400; effort is the
-  # lever. Set it only for providers that actually accept it.
+  # `temperature` is omitted everywhere on purpose. Sampling overrides are a
+  # per-provider question; set one only for a provider that accepts it.
 
 budget:
-  # Ceiling for ONE task across all roles and all QA retries. On breach the run
-  # pauses and raises for a human instead of quietly spending on.
+  # Ceiling for ONE task across all roles and all QA retries. On breach the
+  # run pauses and raises for a human instead of quietly spending on.
   #
-  # $5 is tight with two Opus roles: a 20k-output-token PRD turn is $0.40 at
-  # Opus 5.5's $20/MTok, before any input tokens or retries. Raise it for
-  # large repositories, or move roles to Sonnet.
+  # At DeepSeek prices (~$0.003 per role turn, measured) this ceiling only
+  # trips on a genuinely runaway loop - which is the intent: the gate exists
+  # for the pathological case, not for routine runs.
   per_task_usd: 5.0
   # Warn while there is still something to do about it, not at the ceiling.
   warn_at_fraction: 0.8

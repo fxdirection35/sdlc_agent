@@ -1,0 +1,181 @@
+interactions:
+- request:
+    body: '{"model": "deepseek-v4-flash", "messages": [{"role": "system", "content":
+      "You are a product manager. Turn the requirement into a reviewable PRD with
+      explicit goals, non-goals and acceptance criteria.\n\n\n            As a genius
+      expert, your task is to understand the content and provide\n            the
+      parsed objects in json that match the following json_schema:\n\n\n            {\n  \"$defs\":
+      {\n    \"AcceptanceCriterion\": {\n      \"additionalProperties\": false,\n      \"description\":
+      \"One testable statement of \\\"done\\\" for the PRD.\\n\\nThe QA agent derives
+      its test plan from these, so each criterion must be\\nverifiable by a command
+      an agent can run itself (HARNESS_SPEC.md\\nsection 5.1). A criterion nobody
+      can check is worse than none because it\\ncreates the illusion of a gate.\\n\\nAttributes:\\n    statement:
+      The criterion in one sentence, phrased so that pass/fail is\\n        unambiguous.\\n    verification:
+      How to check it. Prefer an executable command over prose.\",\n      \"properties\":
+      {\n        \"statement\": {\n          \"minLength\": 1,\n          \"title\":
+      \"Statement\",\n          \"type\": \"string\"\n        },\n        \"verification\":
+      {\n          \"minLength\": 1,\n          \"title\": \"Verification\",\n          \"type\":
+      \"string\"\n        }\n      },\n      \"required\": [\n        \"statement\",\n        \"verification\"\n      ],\n      \"title\":
+      \"AcceptanceCriterion\",\n      \"type\": \"object\"\n    }\n  },\n  \"additionalProperties\":
+      false,\n  \"description\": \"The PRD: the PM agent''s output and the first human
+      gate''s input.\\n\\nAttributes:\\n    requirement_id: Back-pointer to the requirement
+      this answers, so a\\n        reviewer can diff intent against interpretation.\\n    problem_statement:
+      What hurts today, in the requester''s terms.\\n    goals: What success looks
+      like. Deliberately separate from\\n        ``non_goals`` so scope creep is visible
+      during review.\\n    non_goals: Explicitly out of scope for this run.\\n    acceptance_criteria:
+      The testable definition of done.\\n    open_questions: Unresolved points the
+      reviewer must settle. Surfacing\\n        these is better than letting the PM
+      agent guess silently.\",\n  \"properties\": {\n    \"artifact_id\": {\n      \"format\":
+      \"uuid\",\n      \"title\": \"Artifact Id\",\n      \"type\": \"string\"\n    },\n    \"kind\":
+      {\n      \"const\": \"prd\",\n      \"default\": \"prd\",\n      \"title\":
+      \"Kind\",\n      \"type\": \"string\"\n    },\n    \"created_at\": {\n      \"format\":
+      \"date-time\",\n      \"title\": \"Created At\",\n      \"type\": \"string\"\n    },\n    \"schema_version\":
+      {\n      \"default\": 1,\n      \"title\": \"Schema Version\",\n      \"type\":
+      \"integer\"\n    },\n    \"requirement_id\": {\n      \"format\": \"uuid\",\n      \"title\":
+      \"Requirement Id\",\n      \"type\": \"string\"\n    },\n    \"problem_statement\":
+      {\n      \"minLength\": 1,\n      \"title\": \"Problem Statement\",\n      \"type\":
+      \"string\"\n    },\n    \"goals\": {\n      \"items\": {\n        \"type\":
+      \"string\"\n      },\n      \"minItems\": 1,\n      \"title\": \"Goals\",\n      \"type\":
+      \"array\"\n    },\n    \"non_goals\": {\n      \"default\": [],\n      \"items\":
+      {\n        \"type\": \"string\"\n      },\n      \"title\": \"Non Goals\",\n      \"type\":
+      \"array\"\n    },\n    \"acceptance_criteria\": {\n      \"items\": {\n        \"$ref\":
+      \"#/$defs/AcceptanceCriterion\"\n      },\n      \"minItems\": 1,\n      \"title\":
+      \"Acceptance Criteria\",\n      \"type\": \"array\"\n    },\n    \"open_questions\":
+      {\n      \"default\": [],\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"title\":
+      \"Open Questions\",\n      \"type\": \"array\"\n    }\n  },\n  \"required\":
+      [\n    \"requirement_id\",\n    \"problem_statement\",\n    \"goals\",\n    \"acceptance_criteria\"\n  ],\n  \"title\":
+      \"ProductRequirements\",\n  \"type\": \"object\"\n}\n\n            Make sure
+      to return an instance of the JSON, not the schema itself\n"}, {"role": "user",
+      "content": "Requirement:\n{\n  \"artifact_id\": \"2cf98c55-0b3b-43af-b46d-ed8417531def\",\n  \"kind\":
+      \"requirement\",\n  \"created_at\": \"2026-10-14T07:49:19.611301Z\",\n  \"schema_version\":
+      1,\n  \"title\": \"Our reporting page is useless for anyone who needs the data
+      elsewhere.\",\n  \"description\": \"Our reporting page is useless for anyone
+      who needs the data elsewhere.\\nPeople screenshot tables and retype them into
+      Excel. Can we get an export?\",\n  \"requester\": \"eval-harness\",\n  \"source_repo\":
+      \"eval://golden/pm_csv_export\"\n}\n\nProduce the prd now."}], "max_tokens":
+      4096, "response_format": {"type": "json_object"}}'
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate, zstd
+      connection:
+      - keep-alive
+      content-length:
+      - '4692'
+      content-type:
+      - application/json
+      host:
+      - api.deepseek.com
+      user-agent:
+      - litellm/1.105.0
+    method: POST
+    uri: https://api.deepseek.com/beta/chat/completions
+  response:
+    body:
+      string: !!binary |
+        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
+        cW0I+VA2vi1iMKHM7Gnt+loRqAE=
+    headers:
+      access-control-allow-credentials:
+      - 'true'
+      connection:
+      - keep-alive
+      content-encoding:
+      - zstd
+      content-type:
+      - application/json
+      date:
+      - Wed, 14 Oct 2026 07:49:18 GMT
+      eo-cache-status:
+      - MISS
+      eo-log-uuid:
+      - '2959343834508901988'
+      server:
+      - openresty
+      strict-transport-security:
+      - max-age=31536000; includeSubDomains; preload
+      transfer-encoding:
+      - chunked
+      vary:
+      - accept-encoding
+      - origin, access-control-request-method, access-control-request-headers
+      x-content-type-options:
+      - nosniff
+      x-ds-trace-id:
+      - 1b14a05f9ab298d93f63c0b87ff26347
+    status:
+      code: 200
+      message: OK
+version: 1

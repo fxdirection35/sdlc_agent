@@ -24,7 +24,7 @@ ruff check src tests     # 代码检查
 
 ```bash
 cp config.example.yaml config.yaml        # 按需改模型与预算
-printf 'POSTGRES_PASSWORD=设置一个数据库密码\nANTHROPIC_API_KEY=sk-ant-...\n' > .env
+printf 'POSTGRES_PASSWORD=设置一个数据库密码\nDEEPSEEK_API_KEY=sk-...\n' > .env
 docker compose up --build -d              # http://<host>:8000
 ```
 

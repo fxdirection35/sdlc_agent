@@ -509,8 +509,14 @@ class TestShippedExample:
     def test_example_loads_and_validates(self) -> None:
         config = load_config(EXAMPLE_CONFIG)
 
-        assert set(config.providers) == {"anthropic"}
+        # The platform default route is DeepSeek; anthropic stays defined as
+        # the documented switch-back path (unreferenced providers require no
+        # key - require_startup_credentials only checks what roles reference).
+        assert set(config.providers) == {"anthropic", "deepseek"}
         assert set(config.roles) == set(PipelineRole)
+        assert all(config.roles[role].provider == "deepseek" for role in PipelineRole), (
+            "the shipped default must match what the golden cassettes record"
+        )
 
     def test_example_resolves_every_role(self) -> None:
         """Each role must resolve to a routable litellm model string."""
@@ -526,6 +532,17 @@ class TestShippedExample:
 
         for role, role_config in config.roles.items():
             assert role_config.temperature is None, f"{role.value} sets temperature"
+
+    def test_example_deepseek_route_carries_json_mode(self) -> None:
+        """The example's default provider needs instructor_mode: json - without
+        it every role call 400s on response_format before doing any work
+        (measured against the real DeepSeek API)."""
+        config = load_config(EXAMPLE_CONFIG)
+
+        for role in PipelineRole:
+            assert config.instructor_mode_for(role) is StructuredOutputMode.JSON, (
+                f"{role.value} would never reach the DeepSeek API"
+            )
 
     def test_example_carries_no_secret_values(self) -> None:
         """The file is committed; a literal key in it is a key in git history.
@@ -560,5 +577,5 @@ class TestShippedExample:
         """A user must be able to tell which variable to export by reading it."""
         text = EXAMPLE_CONFIG.read_text(encoding="utf-8")
 
-        assert "ANTHROPIC_API_KEY" in text
+        assert "DEEPSEEK_API_KEY" in text
         assert "export" in text

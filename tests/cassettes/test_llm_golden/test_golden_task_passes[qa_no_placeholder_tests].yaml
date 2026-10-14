@@ -1,0 +1,155 @@
+interactions:
+- request:
+    body: '{"model": "deepseek-v4-flash", "messages": [{"role": "system", "content":
+      "You are a QA engineer. Write a test plan that proves every acceptance criterion.
+      Record criteria you cannot test instead of dropping them.\n\n\n            As
+      a genius expert, your task is to understand the content and provide\n            the
+      parsed objects in json that match the following json_schema:\n\n\n            {\n  \"$defs\":
+      {\n    \"TestPlanItem\": {\n      \"additionalProperties\": false,\n      \"description\":
+      \"One planned test, traced back to the criterion it proves.\\n\\nAttributes:\\n    criterion:
+      The PRD acceptance criterion this test covers. Kept as text\\n        rather
+      than an id because a criterion may be reworded during review\\n        and the
+      trace must stay readable.\\n    description: What the test does and what it
+      asserts.\\n    test_path: Where the test will live in the sandbox repository.\",\n      \"properties\":
+      {\n        \"criterion\": {\n          \"minLength\": 1,\n          \"title\":
+      \"Criterion\",\n          \"type\": \"string\"\n        },\n        \"description\":
+      {\n          \"minLength\": 1,\n          \"title\": \"Description\",\n          \"type\":
+      \"string\"\n        },\n        \"test_path\": {\n          \"minLength\": 1,\n          \"title\":
+      \"Test Path\",\n          \"type\": \"string\"\n        }\n      },\n      \"required\":
+      [\n        \"criterion\",\n        \"description\",\n        \"test_path\"\n      ],\n      \"title\":
+      \"TestPlanItem\",\n      \"type\": \"object\"\n    }\n  },\n  \"additionalProperties\":
+      false,\n  \"description\": \"What the QA agent intends to verify, produced before
+      any test runs.\\n\\nWriting the plan before execution is what makes the criteria
+      a real gate\\nrather than a post-hoc rationalization (HARNESS_SPEC.md section
+      5.1).\\n\\nAttributes:\\n    prd_id: The PRD whose acceptance criteria drive
+      this plan.\\n    code_change_id: The change under test.\\n    items: The planned
+      tests.\\n    uncovered_criteria: Acceptance criteria this plan does not test,
+      with\\n        the reason. Surfacing the gap beats silently skipping it, because\\n        an
+      uncovered criterion is a reviewer decision, not an agent one.\",\n  \"properties\":
+      {\n    \"artifact_id\": {\n      \"format\": \"uuid\",\n      \"title\": \"Artifact
+      Id\",\n      \"type\": \"string\"\n    },\n    \"kind\": {\n      \"const\":
+      \"test_plan\",\n      \"default\": \"test_plan\",\n      \"title\": \"Kind\",\n      \"type\":
+      \"string\"\n    },\n    \"created_at\": {\n      \"format\": \"date-time\",\n      \"title\":
+      \"Created At\",\n      \"type\": \"string\"\n    },\n    \"schema_version\":
+      {\n      \"default\": 1,\n      \"title\": \"Schema Version\",\n      \"type\":
+      \"integer\"\n    },\n    \"prd_id\": {\n      \"format\": \"uuid\",\n      \"title\":
+      \"Prd Id\",\n      \"type\": \"string\"\n    },\n    \"code_change_id\": {\n      \"format\":
+      \"uuid\",\n      \"title\": \"Code Change Id\",\n      \"type\": \"string\"\n    },\n    \"items\":
+      {\n      \"items\": {\n        \"$ref\": \"#/$defs/TestPlanItem\"\n      },\n      \"minItems\":
+      1,\n      \"title\": \"Items\",\n      \"type\": \"array\"\n    },\n    \"uncovered_criteria\":
+      {\n      \"default\": [],\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"title\":
+      \"Uncovered Criteria\",\n      \"type\": \"array\"\n    }\n  },\n  \"required\":
+      [\n    \"prd_id\",\n    \"code_change_id\",\n    \"items\"\n  ],\n  \"title\":
+      \"TestPlan\",\n  \"type\": \"object\"\n}\n\n            Make sure to return
+      an instance of the JSON, not the schema itself\n"}, {"role": "user", "content":
+      "Requirement:\n{\n  \"artifact_id\": \"9ae3f9c9-d50f-449d-aa25-bc946d11a111\",\n  \"kind\":
+      \"requirement\",\n  \"created_at\": \"2026-10-14T07:50:33.878853Z\",\n  \"schema_version\":
+      1,\n  \"title\": \"Build a test plan for the CSV export. Criteria: header row
+      present; commas\",\n  \"description\": \"Build a test plan for the CSV export.
+      Criteria: header row present; commas\\nand quotes escaped correctly.\",\n  \"requester\":
+      \"eval-harness\",\n  \"source_repo\": \"eval://golden/qa_no_placeholder_tests\"\n}\n\nProduce
+      the test_plan now."}], "max_tokens": 4096, "response_format": {"type": "json_object"}}'
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate, zstd
+      connection:
+      - keep-alive
+      content-length:
+      - '4235'
+      content-type:
+      - application/json
+      host:
+      - api.deepseek.com
+      user-agent:
+      - litellm/1.105.0
+    method: POST
+    uri: https://api.deepseek.com/beta/chat/completions
+  response:
+    body:
+      string: !!binary |
+        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
+        uwkub1bDKxmqEf7a9LWirQI=
+    headers:
+      access-control-allow-credentials:
+      - 'true'
+      connection:
+      - keep-alive
+      content-encoding:
+      - zstd
+      content-type:
+      - application/json
+      date:
+      - Wed, 14 Oct 2026 07:50:32 GMT
+      eo-cache-status:
+      - MISS
+      eo-log-uuid:
+      - '2634557768256674855'
+      server:
+      - openresty
+      strict-transport-security:
+      - max-age=31536000; includeSubDomains; preload
+      transfer-encoding:
+      - chunked
+      vary:
+      - accept-encoding
+      - origin, access-control-request-method, access-control-request-headers
+      x-content-type-options:
+      - nosniff
+      x-ds-trace-id:
+      - e5827b5d8ba824fe24464a13dc212593
+    status:
+      code: 200
+      message: OK
+version: 1

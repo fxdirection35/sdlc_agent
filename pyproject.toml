@@ -72,7 +72,16 @@ timeout = 120
 tmp_path_retention_policy = "none"
 # Turn warnings into failures so a deprecation or a mis-collected class
 # surfaces immediately instead of accumulating in noisy output.
-filterwarnings = ["error"]
+#
+# The litellm exception below is not ours to fix: litellm builds its
+# ChatCompletion types from openai-sdk TypedDicts whose `ReadOnly` qualifier
+# pydantic warns about (sdk/pydantic version skew). The warning fires while
+# parsing EVERY deepseek response - real or replayed - so under the blanket
+# "error" policy it kills the call mid-parse.
+filterwarnings = [
+    "error",
+    "ignore:Item '.*' on TypedDict class '.*' is using the `ReadOnly` qualifier:UserWarning",
+]
 
 [tool.ruff]
 line-length = 100

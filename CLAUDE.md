@@ -67,10 +67,10 @@ python -m venv .venv
 2. **只用确定性检查**：schema 合法性、artifact kind、字段非空、正则命中/不命中、token 上限、工具集白名单。LLM-as-judge 只在确定性检查无法表达需求时才加。
 3. **评估集为空不算通过**：`EvalReport.is_green` 在 0 个任务时返回 `False`。"没跑所以没失败"和 QA 领域模型拒绝的假绿是同一类错误。
 4. 新增检查类型时同步更新 `CHECK_TYPES`，否则加载器报错信息会不准。
-5. **真实模型评测走录制/回放**（`tests/test_llm_golden.py`）：vcrpy 录一次 HTTP，之后离线回放、不花钱。有 cassette 时回放（自动注入哑 key，不会发出去）；无 cassette 且设了 `ANTHROPIC_API_KEY` 时录制（**真实扣费**，12 个任务各一次调用）；两者都没有则跳过——跳过是诚实的。改了 prompt、golden task 或模型配置后重新录制：
+5. **真实模型评测走录制/回放**（`tests/test_llm_golden.py`）：vcrpy 录一次 HTTP，之后离线回放、不花钱。有 cassette 时回放（自动注入哑 key，不会发出去）；无 cassette 且设了 `DEEPSEEK_API_KEY` 时录制（**真实扣费**，12 个任务各一次调用，DeepSeek 价位约几美分）；两者都没有则跳过——跳过是诚实的。改了 prompt、golden task 或模型配置后重新录制：
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+export DEEPSEEK_API_KEY=sk-...
 .venv/Scripts/python -m pytest tests/test_llm_golden.py --record-mode=all
 ```
 
@@ -89,8 +89,10 @@ export ANTHROPIC_API_KEY=sk-ant-...
 **配置文件会进 git，所以只能写环境变量的名字，绝不能写密钥本身**（HARNESS_SPEC.md §4.1）。凭据在运行时从环境读取，加载配置本身不需要任何密钥，因此 CI 可以校验配置。
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+export DEEPSEEK_API_KEY=sk-...
 ```
+
+平台默认路由是 DeepSeek（国内直连、成本约为 Claude 的百分之一，实测一次完整 PRD 约 $0.003）；切回 Claude 只需把 config 里角色的 provider 指回 `anthropic`（该条目保留在 example 里）。**结构化输出模式按供应商配置**（`instructor_mode`）：Anthropic 用默认 `json_schema`；DeepSeek 必须 `json`——实测它全 API 拒绝 json_schema 的 response_format，思考模型还拒绝强制 tool_choice。
 
 注意 `temperature` 默认是 `None` 而不是数字：当代 Claude 模型对任何非默认采样值都会返回 400。质量与成本的调节杆是 `effort`。
 

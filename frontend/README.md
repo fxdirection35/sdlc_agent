@@ -16,7 +16,7 @@ npm run dev          # Vite 开发服务器，/api 代理到 localhost:8000
 
 ```bash
 export SDLC_CONFIG_PATH=config.yaml
-export ANTHROPIC_API_KEY=sk-ant-...
+export DEEPSEEK_API_KEY=sk-...
 export SDLC_DATABASE_URL=postgresql://...   # 不设则内存模式（重启丢门禁）
 .venv/Scripts/python -m uvicorn sdlc_agent.service.main:app --port 8000
 ```

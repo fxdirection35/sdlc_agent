@@ -6,10 +6,14 @@ pytest-recording (vcrpy) intercepts at the HTTP layer, so:
   key is consulted, no money is spent. A dummy key is injected for replay
   only, because ``LitellmRole`` resolves the environment variable before
   the call - the HTTP layer never sees it.
-- **Cassette missing and ``ANTHROPIC_API_KEY`` set**: the run *records*
-  (vcr's default mode "once"). This makes real API calls - one per task,
-  at the models and effort levels ``config.example.yaml`` names - and is
-  the deliberate first-record / re-record flow.
+- **Cassette missing and ``DEEPSEEK_API_KEY`` set**: recording requires an
+  explicit ``--record-mode`` (pytest-recording's default is "none", which
+  refuses every request - a key alone is not enough, and the tests fail
+  client-side rather than skipping). This makes real API calls - one per
+  task, at the models and modes ``config.example.yaml`` names - and is
+  the deliberate first-record / re-record flow. Note the key may arrive
+  via the environment OR via litellm's import-time load of ``.env`` in the
+  working directory; either satisfies the skip check.
 - **Neither**: the task skips. A skipped eval is honest; an eval that never
   ran reporting green is exactly what ``EvalReport.is_green`` refuses.
 
@@ -17,13 +21,14 @@ Re-record after changing a prompt, a golden task or the model config (spends
 real money; existing cassettes force replay, so they must be deleted or the
 record mode overridden):
 
-    export ANTHROPIC_API_KEY=sk-ant-...
+    export DEEPSEEK_API_KEY=sk-...
     .venv/Scripts/python -m pytest tests/test_llm_golden.py --record-mode=all
 """
 
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -48,7 +53,7 @@ TASKS: tuple[GoldenTask, ...] = tuple(
 
 #: Injected only when replaying with no real key in the environment. Never
 #: sent anywhere: vcr answers before the transport runs.
-_REPLAY_KEY = "sk-ant-replay-only"
+_REPLAY_KEY = "sk-deepseek-replay-only"
 
 
 def _cassette_for(task_id: str) -> Path:
@@ -60,7 +65,7 @@ def _cassette_for(task_id: str) -> Path:
 def _params() -> Iterator[Any]:
     for task in TASKS:
         cassette = _cassette_for(task.task_id)
-        can_run = cassette.exists() or bool(os.environ.get("ANTHROPIC_API_KEY"))
+        can_run = cassette.exists() or bool(os.environ.get("DEEPSEEK_API_KEY"))
         yield pytest.param(
             task,
             id=task.task_id,
@@ -70,7 +75,7 @@ def _params() -> Iterator[Any]:
                 else (
                     pytest.mark.skip(
                         reason=(
-                            f"no cassette {cassette.name} and no ANTHROPIC_API_KEY; "
+                            f"no cassette {cassette.name} and no DEEPSEEK_API_KEY; "
                             "see module docstring for the record flow"
                         )
                     ),
@@ -89,14 +94,29 @@ def config() -> PlatformConfig:
     return load_config(CONFIG_PATH)
 
 
-@pytest.mark.vcr
+def test_no_cassette_carries_a_credential() -> None:
+    """Cassettes are committed, and vcr records request headers verbatim by
+    default - an unfiltered `authorization` header would commit the recording
+    key itself into git history (it happened once; caught before the commit).
+    The mark above filters the header at record time; this scan is the net
+    underneath it, so a config regression cannot leak silently.
+    """
+    secret = re.compile(r"sk-[A-Za-z0-9_-]{16,}")
+    cassettes = sorted(CASSETTE_DIR.glob("*.yaml"))
+    assert cassettes, "no cassettes recorded yet"
+    for cassette in cassettes:
+        text = cassette.read_text(encoding="utf-8")
+        assert not secret.search(text), f"{cassette.name} contains a credential"
+
+
+@pytest.mark.vcr(filter_headers=["authorization"])
 @pytest.mark.parametrize("task", list(_params()))
 def test_golden_task_passes(
     task: GoldenTask, config: PlatformConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cassette = _cassette_for(task.task_id)
-    if cassette.exists() and not os.environ.get("ANTHROPIC_API_KEY"):
-        monkeypatch.setenv("ANTHROPIC_API_KEY", _REPLAY_KEY)
+    if cassette.exists() and not os.environ.get("DEEPSEEK_API_KEY"):
+        monkeypatch.setenv("DEEPSEEK_API_KEY", _REPLAY_KEY)
 
     role = LitellmRole(task.role, config)
     result = run_task(task, run_golden_task(role, task))
