@@ -16,8 +16,12 @@ providers:
 
   # Commented out by default. Uncomment to route some roles through DeepSeek,
   # which costs a fraction of Claude and connects directly from within China.
+  # instructor_mode is required there (measured against the real API): DeepSeek
+  # rejects json_schema's response_format API-wide and its thinking models
+  # reject forced tool_choice, so structured output travels as json_object.
   # deepseek:
   #   api_key_env: DEEPSEEK_API_KEY
+  #   instructor_mode: json
   #
   # For a self-hosted or proxied OpenAI-compatible gateway, give the entry a
   # friendly key and set litellm_prefix to what litellm needs for routing:

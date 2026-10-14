@@ -23,7 +23,7 @@ from instructor import Instructor, from_litellm
 from litellm import completion as litellm_completion
 from pydantic import ValidationError
 
-from sdlc_agent.config import PlatformConfig
+from sdlc_agent.config import PlatformConfig, StructuredOutputMode
 from sdlc_agent.domain import ARTIFACT_TYPES, Artifact, PipelineRole
 from sdlc_agent.pipeline.roles import (
     ROLE_OUTPUTS,
@@ -32,20 +32,40 @@ from sdlc_agent.pipeline.roles import (
     RoleResult,
 )
 
-#: One shared instructor client. instructor wraps litellm's completion and keeps
-#: no per-role state, so a module-level client is safe and avoids rebuilding it
-#: per role invocation.
-#:
-#: The mode is JSON_SCHEMA, not instructor's TOOLS default: TOOLS forces
-#: ``tool_choice='required'`` for structured output, which litellm rejects
-#: client-side for Claude models ("does not support forced tool use") - every
-#: role call would die in parameter validation before any network traffic
-#: (measured against instructor 1.17 / litellm 1.105; found by the service
-#: smoke test, hidden from the suite until then because the golden cassettes
-#: had never been recorded). JSON_SCHEMA puts the artifact schema in the
-#: request itself and reaches the API cleanly.
-_MODE = instructor.Mode.JSON_SCHEMA
-_CLIENT: Instructor = from_litellm(litellm_completion, mode=_MODE)
+#: One instructor client per structured-output mode, built on first use and
+#: reused. instructor wraps litellm's completion and keeps no per-role state,
+#: and client construction is pure offline setup, so caching by mode is safe
+#: and avoids rebuilding per role invocation.
+_CLIENTS: dict[instructor.Mode, Instructor] = {}
+
+#: The mode used when a provider does not name one. JSON_SCHEMA, not
+#: instructor's TOOLS default: TOOLS forces ``tool_choice='required'`` for
+#: structured output, which litellm rejects client-side for Claude models
+#: ("does not support forced tool use") - every role call would die in
+#: parameter validation before any network traffic (measured against
+#: instructor 1.17 / litellm 1.105; found by the service smoke test, hidden
+#: from the suite until then because the golden cassettes had never been
+#: recorded). JSON_SCHEMA puts the artifact schema in the request itself and
+#: reaches the Anthropic API cleanly - but DeepSeek rejects that response
+#: format API-wide and serves json_object instead, which is why the mode is
+#: per provider (see StructuredOutputMode) rather than this constant.
+_DEFAULT_MODE = instructor.Mode.JSON_SCHEMA
+
+_MODES: dict[StructuredOutputMode, instructor.Mode] = {
+    StructuredOutputMode.JSON_SCHEMA: instructor.Mode.JSON_SCHEMA,
+    StructuredOutputMode.JSON: instructor.Mode.JSON,
+    StructuredOutputMode.TOOLS: instructor.Mode.TOOLS,
+    StructuredOutputMode.MD_JSON: instructor.Mode.MD_JSON,
+}
+
+
+def _client_for(mode: instructor.Mode) -> Instructor:
+    client = _CLIENTS.get(mode)
+    if client is None:
+        client = from_litellm(litellm_completion, mode=mode)
+        _CLIENTS[mode] = client
+    return client
+
 
 #: What each role is told about itself. Kept to one line of identity plus the
 #: contract; everything else is the schema's job.
@@ -133,9 +153,12 @@ class LitellmRole:
     def run(self, context: RoleContext) -> RoleResult:
         response_model = ARTIFACT_TYPES[ROLE_OUTPUTS[self.role]]
         api_key = self._config.resolve_api_key(self.role)
+        # The wire shape is per provider: model string and structured-output
+        # mode are resolved together from the same config.
+        client = _client_for(_MODES[self._config.instructor_mode_for(self.role)])
 
         try:
-            artifact, raw = _CLIENT.chat.completions.create_with_completion(
+            artifact, raw = client.chat.completions.create_with_completion(
                 messages=[
                     {"role": "system", "content": _system_prompt(self.role)},
                     {"role": "user", "content": _user_message(self.role, context)},

@@ -69,6 +69,20 @@ class FakeInstructor:
         self.chat = SimpleNamespace(completions=completions)
 
 
+def install_fake(
+    monkeypatch: pytest.MonkeyPatch, completions: FakeCompletions, mode: instructor.Mode
+) -> None:
+    """Replace the client cache for one test with fakes under ``mode``.
+
+    The cache dict itself is swapped (monkeypatch restores the original
+    afterwards), so no fake or real client ever leaks between tests. Modes a
+    test does NOT install stay absent - selecting one of those builds a real
+    instructor client, which is offline but visible in a test's failure as a
+    network attempt, exactly the loudness wanted here.
+    """
+    monkeypatch.setattr(llm_roles, "_CLIENTS", {mode: FakeInstructor(completions)})
+
+
 @pytest.fixture(autouse=True)
 def _api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every test needs the key in the environment; the fake client never uses it."""
@@ -97,7 +111,7 @@ def fake(
     monkeypatch: pytest.MonkeyPatch,
 ) -> FakeCompletions:
     fake_completions = FakeCompletions()
-    monkeypatch.setattr(llm_roles, "_CLIENT", FakeInstructor(fake_completions))
+    install_fake(monkeypatch, fake_completions, instructor.Mode.JSON_SCHEMA)
     return fake_completions
 
 
@@ -119,15 +133,60 @@ def make_context(
     )
 
 
-class TestClientMode:
-    def test_the_client_uses_json_schema_mode(self) -> None:
+class TestModeSelection:
+    def test_the_default_mode_is_json_schema(self) -> None:
         """instructor's TOOLS default forces tool_choice='required', which
         litellm rejects client-side for Claude models - every role call would
         die in parameter validation before any network traffic (measured;
         surfaced by the service smoke test, invisible to these tests because
         the fake replaces the whole client). If this pin breaks, the change
         was deliberate - re-measure against a real provider."""
-        assert llm_roles._MODE is instructor.Mode.JSON_SCHEMA
+        assert llm_roles._DEFAULT_MODE is instructor.Mode.JSON_SCHEMA
+
+    def test_the_mode_comes_from_the_role_s_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """DeepSeek serves json_object, not json_schema (measured against the
+        real API), so a deepseek role must be driven by the JSON-mode client.
+        The JSON_SCHEMA slot holds a fake that fails loudly, so selecting the
+        default mode here is a visible failure, not a silent network call."""
+        config = PlatformConfig.model_validate(
+            {
+                "providers": {
+                    "deepseek": {"api_key_env": "DEEPSEEK_API_KEY", "instructor_mode": "json"}
+                },
+                "roles": {
+                    role.value: {"provider": "deepseek", "model": "deepseek-v4-flash"}
+                    for role in PipelineRole
+                },
+            }
+        )
+        fake_completions = FakeCompletions()
+        monkeypatch.setattr(
+            llm_roles,
+            "_CLIENTS",
+            {
+                instructor.Mode.JSON: FakeInstructor(fake_completions),
+                instructor.Mode.JSON_SCHEMA: FakeInstructor(
+                    FakeCompletions(fail_with=AssertionError("wrong mode for deepseek"))
+                ),
+            },
+        )
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-test")
+
+        llm_roles.LitellmRole(PipelineRole.QA, config).run(make_context())
+
+        assert fake_completions.calls, "the JSON-mode client must have served the call"
+
+    def test_clients_are_cached_per_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """One client per mode, reused across role calls: construction is pure
+        offline setup, and rebuilding per request would allocate for nothing."""
+        monkeypatch.setattr(llm_roles, "_CLIENTS", {})
+
+        first = llm_roles._client_for(instructor.Mode.JSON_SCHEMA)
+        second = llm_roles._client_for(instructor.Mode.JSON_SCHEMA)
+        other = llm_roles._client_for(instructor.Mode.JSON)
+
+        assert first is second
+        assert first is not other
 
 
 class TestRoleBriefs:
@@ -235,7 +294,7 @@ class TestErrorHandling:
         error: Exception,
     ) -> None:
         fake = FakeCompletions(fail_with=error)
-        monkeypatch.setattr(llm_roles, "_CLIENT", FakeInstructor(fake))
+        install_fake(monkeypatch, fake, instructor.Mode.JSON_SCHEMA)
 
         with pytest.raises(RoleError, match="product_manager"):
             role.run(make_context())
@@ -263,7 +322,7 @@ class TestPromptShape:
     ) -> None:
         """The architect sees the PRD; the QA role sees the PRD and the change."""
         fake = FakeCompletions()
-        monkeypatch.setattr(llm_roles, "_CLIENT", FakeInstructor(fake))
+        install_fake(monkeypatch, fake, instructor.Mode.JSON_SCHEMA)
         architect = llm_roles.LitellmRole(PipelineRole.ARCHITECT, config)
         prd = make_prd_artifact()
 

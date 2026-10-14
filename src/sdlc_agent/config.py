@@ -17,7 +17,7 @@ import os
 import re
 from enum import StrEnum
 from pathlib import Path
-from typing import Self
+from typing import ClassVar, Self
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -63,6 +63,30 @@ class EffortLevel(StrEnum):
     MAX = "max"
 
 
+class StructuredOutputMode(StrEnum):
+    """How instructor transports the artifact schema to one provider.
+
+    Per provider because the APIs measurably disagree (instructor 1.17 /
+    litellm 1.105, probed against the real DeepSeek API):
+
+    - ``json_schema`` puts the schema in the request itself and works for
+      Anthropic; DeepSeek rejects the ``response_format`` type API-wide
+      ("This response_format type is unavailable now").
+    - ``tools`` is instructor's default but forces ``tool_choice='required'``,
+      which litellm rejects client-side for Claude *and* which DeepSeek's
+      thinking models reject server-side.
+    - ``json`` (``json_object``) is the mode DeepSeek actually serves.
+
+    An enum rather than a free string, like ``EffortLevel``, so a typo fails
+    at config load instead of as a 400 on the first call of every run.
+    """
+
+    JSON_SCHEMA = "json_schema"
+    JSON = "json"
+    TOOLS = "tools"
+    MD_JSON = "md_json"
+
+
 class ProviderConfig(BaseModel):
     """One LLM provider and how to authenticate against it.
 
@@ -73,6 +97,9 @@ class ProviderConfig(BaseModel):
             differs from the config key. Defaults to the key itself.
         base_url: Optional endpoint override, for a self-hosted or proxied
             gateway. Left unset, litellm uses the provider's default.
+        instructor_mode: Structured-output transport for this provider.
+            ``None`` means the platform default (``json_schema``), which is
+            what Anthropic serves; DeepSeek needs ``json``.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -80,6 +107,7 @@ class ProviderConfig(BaseModel):
     api_key_env: str = Field(min_length=1)
     litellm_prefix: str | None = None
     base_url: str | None = None
+    instructor_mode: StructuredOutputMode | None = None
 
     @field_validator("api_key_env")
     @classmethod
@@ -183,6 +211,11 @@ class PlatformConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    #: Used when a provider entry does not name a mode: the one measured
+    #: against Anthropic, the platform's first provider. A class attribute,
+    #: not a field - it is a property of the code, not of any config file.
+    DEFAULT_INSTRUCTOR_MODE: ClassVar[StructuredOutputMode] = StructuredOutputMode.JSON_SCHEMA
+
     providers: dict[str, ProviderConfig] = Field(min_length=1)
     roles: dict[PipelineRole, RoleModelConfig]
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
@@ -224,6 +257,16 @@ class PlatformConfig(BaseModel):
             role_config.provider, role_config.provider
         )
         return f"{prefix}/{role_config.model}"
+
+    def instructor_mode_for(self, role: PipelineRole) -> StructuredOutputMode:
+        """Resolve a role to the structured-output mode its provider serves.
+
+        Providers disagree on what they accept (see :class:`StructuredOutputMode`),
+        so this is a property of the provider, resolved per role exactly like
+        ``litellm_model`` - the two together are the full per-role wire shape.
+        """
+        provider = self.providers[self.roles[role].provider]
+        return provider.instructor_mode or self.DEFAULT_INSTRUCTOR_MODE
 
     def resolve_api_key(self, role: PipelineRole) -> str:
         """Read the API key for a role's provider from the environment.

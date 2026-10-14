@@ -21,6 +21,7 @@ from sdlc_agent.config import (
     PlatformConfig,
     ProviderConfig,
     RoleModelConfig,
+    StructuredOutputMode,
     load_config,
 )
 from sdlc_agent.domain.base import PipelineRole
@@ -124,6 +125,22 @@ class TestProviderConfig:
 
         assert provider.base_url is None
         assert provider.litellm_prefix is None
+        assert provider.instructor_mode is None
+
+    @pytest.mark.parametrize(
+        "mode",
+        ["json_schema", "json", "tools", "md_json"],
+    )
+    def test_accepts_every_structured_output_mode(self, mode: str) -> None:
+        provider = ProviderConfig.model_validate({"api_key_env": "K", "instructor_mode": mode})
+
+        assert provider.instructor_mode is StructuredOutputMode(mode)
+
+    def test_rejects_unknown_instructor_mode(self) -> None:
+        """A typo here would be a provider 400 on the first call of every run
+        (json_object is spelled ``json``); it must fail at load instead."""
+        with pytest.raises(ValidationError):
+            ProviderConfig.model_validate({"api_key_env": "K", "instructor_mode": "json_object"})
 
     def test_rejects_unknown_fields(self) -> None:
         with pytest.raises(ValidationError, match="api_key"):
@@ -302,6 +319,65 @@ class TestLitellmModelResolution:
 
         assert config.litellm_model(PipelineRole.ARCHITECT) == "anthropic/claude-opus-5"
         assert config.litellm_model(PipelineRole.DEVELOPER) == "deepseek/deepseek-v4"
+
+
+class TestInstructorModeResolution:
+    """The structured-output transport is per provider because the APIs
+    measurably disagree (see StructuredOutputMode); these pin that a role
+    resolves to ITS provider's mode, exactly like litellm_model."""
+
+    def test_unspecified_provider_gets_the_platform_default(
+        self, minimal_config: PlatformConfig
+    ) -> None:
+        assert (
+            minimal_config.instructor_mode_for(PipelineRole.QA)
+            is PlatformConfig.DEFAULT_INSTRUCTOR_MODE
+        )
+        assert PlatformConfig.DEFAULT_INSTRUCTOR_MODE is StructuredOutputMode.JSON_SCHEMA
+
+    def test_provider_mode_overrides_the_default(self) -> None:
+        config = PlatformConfig.model_validate(
+            {
+                "providers": {
+                    "deepseek": {
+                        "api_key_env": "DEEPSEEK_API_KEY",
+                        "instructor_mode": "json",
+                    }
+                },
+                "roles": {
+                    role.value: {"provider": "deepseek", "model": "deepseek-v4-flash"}
+                    for role in PipelineRole
+                },
+            }
+        )
+
+        assert config.instructor_mode_for(PipelineRole.QA) is StructuredOutputMode.JSON
+
+    def test_roles_on_different_providers_resolve_differently(self) -> None:
+        """Mixed routing: a Claude role keeps json_schema while a DeepSeek
+        role gets json, in the same config."""
+        config = PlatformConfig.model_validate(
+            {
+                "providers": {
+                    "anthropic": {"api_key_env": "ANTHROPIC_API_KEY"},
+                    "deepseek": {
+                        "api_key_env": "DEEPSEEK_API_KEY",
+                        "instructor_mode": "json",
+                    },
+                },
+                "roles": {
+                    "product_manager": {"provider": "anthropic", "model": "claude-opus-5-5"},
+                    "architect": {"provider": "anthropic", "model": "claude-opus-5-5"},
+                    "developer": {"provider": "deepseek", "model": "deepseek-v4-flash"},
+                    "qa": {"provider": "deepseek", "model": "deepseek-v4-flash"},
+                },
+            }
+        )
+
+        assert config.instructor_mode_for(PipelineRole.ARCHITECT) is (
+            StructuredOutputMode.JSON_SCHEMA
+        )
+        assert config.instructor_mode_for(PipelineRole.QA) is StructuredOutputMode.JSON
 
 
 class TestResolveApiKey:
