@@ -120,7 +120,16 @@ def run_golden_task(role_impl: Role, task: GoldenTask) -> AgentRun:
         result = role_impl.run(context_for_task(task))
     except RoleError:
         return AgentRun(artifact=None)
-    return result.as_agent_run()
+    # Constructed here rather than via a method on RoleResult so the pipeline
+    # layer never imports the eval layer: evals adapts to pipeline, not the
+    # reverse (importing pipeline.roles as the entry module used to crash on
+    # the cycle role_runner -> pipeline.roles -> evals.runner -> role_runner).
+    return AgentRun(
+        artifact=result.artifact,
+        raw_payload=result.raw_payload,
+        output_tokens=result.output_tokens,
+        tools_called=result.tools_called,
+    )
 
 
 def run_role_eval_set(role_impl: Role, tasks: Sequence[GoldenTask]) -> EvalReport:

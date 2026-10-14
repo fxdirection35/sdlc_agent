@@ -18,7 +18,6 @@ from typing import Protocol
 
 from sdlc_agent.domain import Artifact, ArtifactKind, PipelineRole
 from sdlc_agent.domain.product import Requirement
-from sdlc_agent.evals.runner import AgentRun
 
 
 class RoleError(RuntimeError):
@@ -51,15 +50,6 @@ class RoleResult:
     output_tokens: int = 0
     tools_called: tuple[str, ...] = ()
     raw_payload: str = ""
-
-    def as_agent_run(self) -> AgentRun:
-        """Present this result in the shape the eval harness consumes."""
-        return AgentRun(
-            artifact=self.artifact,
-            raw_payload=self.raw_payload,
-            output_tokens=self.output_tokens,
-            tools_called=self.tools_called,
-        )
 
 
 @dataclass(frozen=True, slots=True)
