@@ -59,3 +59,31 @@ python -m venv .venv
 
 平台的 agent（PM / 架构 / 开发 / QA）必须遵循 [`docs/HARNESS_SPEC.md`](docs/HARNESS_SPEC.md)。开发或修改任一角色 agent 前，先过一遍该文档 §9 的 HARNESS_CHECKLIST。
 
+## 评估集（Evals）
+
+按 HARNESS_SPEC.md §5.2，**每个角色 agent 上线前必须有 golden task 评估集**，改动 prompt 或流程后必须跑一遍防回退。
+
+1. 评估用例定义在 `src/sdlc_agent/evals/golden/*.yaml`（每角色一个文件，3-5 条）。它们是数据而非代码，调期望值不需要动 runner。
+2. **只用确定性检查**：schema 合法性、artifact kind、字段非空、正则命中/不命中、token 上限、工具集白名单。LLM-as-judge 只在确定性检查无法表达需求时才加。
+3. **评估集为空不算通过**：`EvalReport.is_green` 在 0 个任务时返回 `False`。"没跑所以没失败"和 QA 领域模型拒绝的假绿是同一类错误。
+4. 新增检查类型时同步更新 `CHECK_TYPES`，否则加载器报错信息会不准。
+
+```bash
+.venv/Scripts/python -c "from sdlc_agent.evals import load_all_tasks, summarize_coverage; import json; print(json.dumps(summarize_coverage(load_all_tasks()), indent=1))"
+```
+
+`summarize_coverage` 会列出每个角色**未被覆盖的评估维度**——覆盖有缺口不是错，但必须是知情的决定而不是意外。
+
+## 配置
+
+`config.example.yaml` 是范例（已被测试覆盖，改坏会红）。复制为 `config.yaml` 后使用。
+
+**配置文件会进 git，所以只能写环境变量的名字，绝不能写密钥本身**（HARNESS_SPEC.md §4.1）。凭据在运行时从环境读取，加载配置本身不需要任何密钥，因此 CI 可以校验配置。
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+注意 `temperature` 默认是 `None` 而不是数字：当代 Claude 模型对任何非默认采样值都会返回 400。质量与成本的调节杆是 `effort`。
+
+
