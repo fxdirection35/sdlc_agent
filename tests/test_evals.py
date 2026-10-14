@@ -12,6 +12,7 @@ import re
 import uuid
 from collections.abc import Callable
 from pathlib import Path
+from typing import get_args
 
 import pytest
 from pydantic import ValidationError
@@ -22,6 +23,8 @@ from sdlc_agent.evals import (
     CHECK_TYPES,
     EVAL_DIR,
     AgentRun,
+    AnyCheck,
+    Check,
     EvalDimension,
     EvalRunError,
     GoldenTask,
@@ -40,18 +43,39 @@ from sdlc_agent.evals.tasks import (
 )
 
 
+def _declared_type_of(check_class: type[Check]) -> str:
+    """Read the discriminator value a check class declares.
+
+    Each class annotates its own ``type`` field as a single-valued ``Literal``,
+    such as ``Literal["schema_valid"]``, so the literal's only argument is the
+    string a YAML file must use to select this class.
+    """
+    annotation = check_class.model_fields["type"].annotation
+    declared = get_args(annotation)
+    assert len(declared) == 1, f"{check_class.__name__}.type is not a single-valued Literal"
+    return str(declared[0])
+
+
 class TestCheckModels:
-    def test_every_check_type_is_reachable_from_yaml(self) -> None:
-        """A type the loader cannot build would silently never be used."""
-        assert set(CHECK_TYPES) == {
-            "schema_valid",
-            "kind_correct",
-            "field_non_empty",
-            "text_matches",
-            "text_absent",
-            "max_output_tokens",
-            "tools_within",
-        }
+    def test_check_types_match_the_union_the_loader_builds(self) -> None:
+        """CHECK_TYPES must list exactly the types a YAML file can name.
+
+        Derived from ``AnyCheck`` rather than a hardcoded literal, so adding a
+        check class and forgetting to register it fails here. Without that, the
+        new type would load fine but the loader's "known check types" hint on an
+        unrelated typo would be silently incomplete.
+        """
+        reachable = get_args(get_args(AnyCheck)[0])
+        declared = {_declared_type_of(cls) for cls in reachable}
+
+        assert declared == set(CHECK_TYPES)
+
+    def test_every_check_class_is_reachable_from_yaml(self) -> None:
+        """A Check subclass absent from the union can never be instantiated."""
+        reachable = set(get_args(get_args(AnyCheck)[0]))
+        defined = set(Check.__subclasses__())
+
+        assert defined == reachable, f"unreachable: {defined - reachable}"
 
     def test_checks_default_to_the_outcome_dimension(self) -> None:
         assert (
