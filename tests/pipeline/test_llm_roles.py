@@ -13,6 +13,7 @@ import uuid
 from types import SimpleNamespace
 from typing import Any
 
+import instructor
 import pytest
 
 from sdlc_agent.config import MissingCredentialError, PlatformConfig
@@ -116,6 +117,17 @@ def make_context(
         feedback=feedback,
         upstream=upstream or {},
     )
+
+
+class TestClientMode:
+    def test_the_client_uses_json_schema_mode(self) -> None:
+        """instructor's TOOLS default forces tool_choice='required', which
+        litellm rejects client-side for Claude models - every role call would
+        die in parameter validation before any network traffic (measured;
+        surfaced by the service smoke test, invisible to these tests because
+        the fake replaces the whole client). If this pin breaks, the change
+        was deliberate - re-measure against a real provider."""
+        assert llm_roles._MODE is instructor.Mode.JSON_SCHEMA
 
 
 class TestRoleBriefs:

@@ -24,7 +24,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from sdlc_agent.config import load_config
+from sdlc_agent.config import MissingCredentialError, PlatformConfig, load_config
 from sdlc_agent.domain.base import PipelineRole
 from sdlc_agent.pipeline import TestExecutor, make_memory_checkpointer
 from sdlc_agent.pipeline.llm_roles import LitellmRole
@@ -56,6 +56,34 @@ def checkpointer_from_env() -> tuple[CheckpointerFactory, str]:
     return (lambda: nullcontext(saver)), "in-memory (gates lost on restart)"
 
 
+def require_startup_credentials(config: PlatformConfig) -> None:
+    """Refuse to serve without every provider's credentials.
+
+    A service that boots keyless would pass /api/health and then fail every
+    run: green-but-broken, the false positive this project refuses elsewhere.
+    The check is at boot only - a process's environment is frozen after
+    startup, so a credential that existed at boot exists for every request,
+    and the graph's RoleError path stays reserved for genuine provider
+    trouble (a missing key escaping the graph is pinned as a loud failure in
+    tests/pipeline/test_llm_roles.py and stays that way).
+
+    Raises with ALL missing variables named, so an operator fixes the
+    deployment in one restart instead of one per role.
+    """
+    missing: list[str] = []
+    for role in PipelineRole:
+        try:
+            config.resolve_api_key(role)
+        except MissingCredentialError as exc:
+            missing.append(str(exc))
+    if missing:
+        raise RuntimeError(
+            "refusing to start: "
+            + "; ".join(missing)
+            + f" (set them before launching; see {CONFIG_PATH_ENV} config)"
+        )
+
+
 def executor_from_env() -> TestExecutor:
     """The sandbox executor; needs the ``sandbox`` extra (see CLAUDE.md).
 
@@ -72,6 +100,7 @@ def create_app_from_env() -> FastAPI:
     """Build the deployed app: config file, litellm roles, sandbox executor."""
     config_path = Path(os.environ.get(CONFIG_PATH_ENV, str(DEFAULT_CONFIG_PATH)))
     config = load_config(config_path)
+    require_startup_credentials(config)
     factory, storage = checkpointer_from_env()
     if "in-memory" in storage:
         logger.warning(
@@ -101,4 +130,5 @@ __all__ = [
     "app",
     "checkpointer_from_env",
     "create_app_from_env",
+    "require_startup_credentials",
 ]

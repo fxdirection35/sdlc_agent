@@ -120,5 +120,6 @@ uvicorn sdlc_agent.service.main:app
 2. **verdict 必须在 HTTP 边界校验，绝不能靠 graph 拒绝**（实测）：LangGraph 会把 resume 值持久化进 pending task 并在重执行的节点里重新投递——一次坏 verdict 就让 run 永远卡死在该 gate，之后每次 resume 都重放同一个坏值。边界上 400 不碰 checkpoint，客户端可以改了重试。
 3. checkpointer 按请求经工厂制造（psycopg 连接不能跨线程共享）；编译 graph 是纯拓扑构建，随 saver 同生命周期一起重建。
 4. `run_id` 即 LangGraph thread id，没有第二套映射。未知 thread 的 `get_state` 返回**空快照**而非 `None`（实测），404 判据是 `created_at is None`。
+5. **无凭据拒绝启动**（`require_startup_credentials`）：health 绿但每个 run 都 500 是假绿。进程 env 启动后冻结，启动时校验过、运行中就不可能再缺。
 
 

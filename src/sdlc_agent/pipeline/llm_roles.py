@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import instructor
 from instructor import Instructor, from_litellm
 from litellm import completion as litellm_completion
 from pydantic import ValidationError
@@ -34,7 +35,17 @@ from sdlc_agent.pipeline.roles import (
 #: One shared instructor client. instructor wraps litellm's completion and keeps
 #: no per-role state, so a module-level client is safe and avoids rebuilding it
 #: per role invocation.
-_CLIENT: Instructor = from_litellm(litellm_completion)
+#:
+#: The mode is JSON_SCHEMA, not instructor's TOOLS default: TOOLS forces
+#: ``tool_choice='required'`` for structured output, which litellm rejects
+#: client-side for Claude models ("does not support forced tool use") - every
+#: role call would die in parameter validation before any network traffic
+#: (measured against instructor 1.17 / litellm 1.105; found by the service
+#: smoke test, hidden from the suite until then because the golden cassettes
+#: had never been recorded). JSON_SCHEMA puts the artifact schema in the
+#: request itself and reaches the API cleanly.
+_MODE = instructor.Mode.JSON_SCHEMA
+_CLIENT: Instructor = from_litellm(litellm_completion, mode=_MODE)
 
 #: What each role is told about itself. Kept to one line of identity plus the
 #: contract; everything else is the schema's job.

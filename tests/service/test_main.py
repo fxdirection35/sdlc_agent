@@ -20,11 +20,25 @@ from sdlc_agent.service.app import CONFIG_PATH_ENV
 #: variable NAMES, never secrets), which makes it the right fixture here.
 EXAMPLE_CONFIG = "config.example.yaml"
 
+#: The provider the example config names for every role. The happy-path
+#: subprocesses set a dummy value explicitly so they pass identically on hosts
+#: with and without a real key; the credential-refusal test removes it with
+#: equal care. Never a real secret: this value is never sent anywhere.
+API_KEY_ENV = "ANTHROPIC_API_KEY"
+DUMMY_KEY = "sk-ant-startup-check-only"
+
 Completed = subprocess.CompletedProcess[str]
 
 
-def run_service_code(code: str, env_extra: dict[str, str] | None = None) -> Completed:
-    env = {**os.environ, CONFIG_PATH_ENV: EXAMPLE_CONFIG, **(env_extra or {})}
+def run_service_code(
+    code: str,
+    env_extra: dict[str, str] | None = None,
+    drop: tuple[str, ...] = (),
+) -> Completed:
+    env = {**os.environ, CONFIG_PATH_ENV: EXAMPLE_CONFIG, API_KEY_ENV: DUMMY_KEY}
+    env.update(env_extra or {})
+    for name in drop:
+        env.pop(name, None)
     return subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True,
@@ -62,14 +76,30 @@ class TestUvicornTarget:
     def test_a_missing_config_file_fails_at_startup(self) -> None:
         """Import must fail loudly when there is no config, not serve an app
         wired to defaults nobody chose."""
-        completed = subprocess.run(
+        completed = run_service_code("import sdlc_agent.service.main")
+        # run_service_code always sets the example config; override it to a
+        # missing path so this test stays about the config file.
+        assert completed.returncode == 0  # sanity: the happy path boots
+        missing = subprocess.run(
             [sys.executable, "-c", "import sdlc_agent.service.main"],
             capture_output=True,
             text=True,
             timeout=120,
-            env={**os.environ, CONFIG_PATH_ENV: "no-such-config.yaml"},
+            env={
+                **os.environ,
+                CONFIG_PATH_ENV: "no-such-config.yaml",
+                API_KEY_ENV: DUMMY_KEY,
+            },
         )
+        assert missing.returncode != 0
+
+    def test_a_missing_credential_refuses_to_boot(self) -> None:
+        """A keyless service would pass /api/health and then fail every run -
+        green but broken. Boot must refuse, naming every missing variable."""
+        completed = run_service_code("import sdlc_agent.service.main", drop=(API_KEY_ENV,))
+
         assert completed.returncode != 0
+        assert API_KEY_ENV in completed.stderr
 
 
 class TestCheckpointerFromEnv:
