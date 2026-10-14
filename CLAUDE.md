@@ -106,4 +106,19 @@ export SDLC_TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/sdlc_test
 
 未设置时该测试跳过——跳过是诚实的；对着假的数据库跑绿不是。
 
+## 服务
+
+FastAPI 服务把 graph 包成 HTTP（`src/sdlc_agent/service/`）。启动：
+
+```bash
+export SDLC_CONFIG_PATH=config.yaml          # 缺省即 config.yaml
+export SDLC_DATABASE_URL=postgresql://...    # 缺省则用内存 saver（重启丢门禁，会打 warning）
+uvicorn sdlc_agent.service.main:app
+```
+
+1. **每个请求恰好推进一次**：create 跑到第一个 interrupt，每次 review/budget 决定跑到下一个。一个请求推进两次等于替人回答了没人看过的门禁。
+2. **verdict 必须在 HTTP 边界校验，绝不能靠 graph 拒绝**（实测）：LangGraph 会把 resume 值持久化进 pending task 并在重执行的节点里重新投递——一次坏 verdict 就让 run 永远卡死在该 gate，之后每次 resume 都重放同一个坏值。边界上 400 不碰 checkpoint，客户端可以改了重试。
+3. checkpointer 按请求经工厂制造（psycopg 连接不能跨线程共享）；编译 graph 是纯拓扑构建，随 saver 同生命周期一起重建。
+4. `run_id` 即 LangGraph thread id，没有第二套映射。未知 thread 的 `get_state` 返回**空快照**而非 `None`（实测），404 判据是 `created_at is None`。
+
 
