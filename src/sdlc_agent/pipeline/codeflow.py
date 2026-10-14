@@ -1,7 +1,7 @@
 """Code-flow helpers: bridging the pipeline's artifacts to a real repository.
 
-This module holds the deterministic code-flow nodes - checkout and apply, with
-deliver to follow - plus the repo-context primitives they share: the bounded
+This module holds the deterministic code-flow nodes - checkout, apply and
+deliver - plus the repo-context primitives they share: the bounded
 tree renderer for prompts and the :class:`RepoClient` protocol the nodes
 drive. Real implementations (subprocess git, GitHub REST) live in
 :mod:`sdlc_agent.integrations`; tests use fakes against this protocol, the
@@ -26,6 +26,7 @@ from langchain_core.runnables import RunnableConfig
 
 from sdlc_agent.domain import ArtifactKind
 from sdlc_agent.domain.engineering import CodeChange, FileEdit
+from sdlc_agent.domain.qa import QualityGate
 from sdlc_agent.pipeline.state import AuditEvent, PipelineState, RunStatus
 
 #: Directories that are never interesting to a role reading a repository:
@@ -182,6 +183,31 @@ class RepoClient(Protocol):
         """Push ``branch`` to the workspace's origin."""
         ...
 
+    def head_sha(self, root: Path, *, token: str = "") -> str:
+        """Current HEAD of the workspace, for the deliver guard's check that
+        what would be pushed is what was verified."""
+        ...
+
+
+class PullRequestOpener(Protocol):
+    """Opens (or finds) the pull request a delivered branch is reviewed in."""
+
+    def ensure_open(self, *, repo: str, branch: str, title: str, body: str) -> str:
+        """Return the PR's ``html_url``, opening one only if none is open.
+
+        Must be idempotent per branch: a revision loop re-delivers the same
+        branch and must find its own PR, not open a sibling.
+        """
+        ...
+
+    def slug_for(self, remote: str) -> str:
+        """``owner/name`` for a git remote this opener serves.
+
+        Raises when the remote is not served by this opener (wrong host,
+        wrong scheme): a remote the opener cannot serve simply gets no PR.
+        """
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class CodeIntegrations:
@@ -201,11 +227,14 @@ class CodeIntegrations:
             days find the same clone on resume.
         token: Remote credentials for https origins; empty for local or
             public-write setups.
+        pulls: PR seam for the deliver node. ``None`` delivers by push only -
+            the branch lands on the remote but no PR is opened or linked.
     """
 
     repo: RepoClient
     workspaces_dir: Path
     token: str = ""
+    pulls: PullRequestOpener | None = None
 
 
 def _run_id(config: RunnableConfig, state: PipelineState) -> str:
@@ -359,13 +388,117 @@ def make_apply_node(code: CodeIntegrations, stage: str) -> Any:
     return node
 
 
+def make_deliver_node(code: CodeIntegrations, stage: str) -> Any:
+    """Build the node that puts a verified change in front of a human.
+
+    Runs after verify approves, before the merge gate: push the branch, open
+    (or find) the PR, and put its URL on the artifacts the gate displays - so
+    the human approves or rejects a *diff they can click*, not a description
+    of one.
+
+    Failure policy is asymmetric on purpose. A workspace whose HEAD no longer
+    matches the verified ``CodeChange.commit_sha`` escalates: the volume was
+    lost or the workspace was rebuilt, and pushing whatever is there now
+    would publish code nobody verified. A push or PR call that merely fails
+    (GitHub down, network blip) is audited and the run continues to the gate
+    - a transient outage must not kill a change the suite already passed; the
+    human gate remains the safety net, and delivery can be re-driven.
+    """
+
+    def node(state: PipelineState, config: RunnableConfig) -> dict[str, Any]:
+        repo_root = state.get("repo_root", "")
+        if not repo_root:
+            return {"audit": _audit(stage, "deliver_skipped", "run has no workspace")}
+
+        change = state.get("artifacts", {}).get(ArtifactKind.CODE_CHANGE)
+        if not isinstance(change, CodeChange):
+            return {
+                "status": RunStatus.ESCALATED,
+                "audit": _audit(stage, "deliver_failed", "no code change to deliver"),
+            }
+
+        try:
+            head = code.repo.head_sha(Path(repo_root), token=code.token)
+        except (RuntimeError, OSError) as exc:
+            return {
+                "status": RunStatus.ESCALATED,
+                "audit": _audit(stage, "deliver_diverged", f"could not read workspace HEAD: {exc}"),
+            }
+        if head != change.commit_sha:
+            return {
+                "status": RunStatus.ESCALATED,
+                "audit": _audit(
+                    stage,
+                    "deliver_diverged",
+                    f"workspace HEAD {head[:12]} != verified {change.commit_sha[:12]}; "
+                    "refusing to push unverified code",
+                ),
+            }
+
+        branch = _branch_for(config, state)
+        # Deliberately no "PR already open" short-circuit. After a merge-review
+        # rejection the loop re-applies, and by the time deliver runs again
+        # head == commit_sha once more - while the open PR still points at the
+        # *previous* sha. Skipping the push would leave the human approving a
+        # stale diff. Both operations below are idempotent instead: re-pushing
+        # an unchanged branch is a no-op, and ensure_open finds the existing
+        # PR rather than opening a sibling.
+        audit: list[AuditEvent] = []
+        try:
+            code.repo.push(Path(repo_root), branch, token=code.token)
+            audit.append(
+                AuditEvent(stage=stage, event="delivered", detail=f"pushed {branch} @ {head[:12]}")
+            )
+        except (RuntimeError, OSError) as exc:
+            audit.append(AuditEvent(stage=stage, event="deliver_failed", detail=f"push: {exc}"))
+            return {"audit": tuple(audit)}
+
+        updates: dict[str, Any] = {}
+        if code.pulls is not None:
+            try:
+                slug = code.pulls.slug_for(state["requirement"].source_repo)
+                url = code.pulls.ensure_open(
+                    repo=slug,
+                    branch=branch,
+                    title=f"sdlc-agent: {state['requirement'].title}",
+                    body=(
+                        f"{change.summary}\n\n"
+                        f"Branch: {branch}\n"
+                        f"Files changed: {len(change.files_changed)}\n\n"
+                        "Opened by the SDLC agent pipeline; the merge gate reviews it."
+                    ),
+                )
+            except (RuntimeError, ValueError) as exc:
+                audit.append(AuditEvent(stage=stage, event="deliver_failed", detail=f"PR: {exc}"))
+            else:
+                audit.append(AuditEvent(stage=stage, event="delivered", detail=f"PR {url}"))
+                updates = {
+                    "artifacts": {
+                        ArtifactKind.CODE_CHANGE: CodeChange.model_validate(
+                            {**change.model_dump(), "pr_url": url}
+                        ),
+                    }
+                }
+                gate = state.get("artifacts", {}).get(ArtifactKind.QUALITY_GATE)
+                if isinstance(gate, QualityGate):
+                    updates["artifacts"][ArtifactKind.QUALITY_GATE] = gate.model_copy(
+                        update={"pr_url": url}
+                    )
+
+        return {"audit": tuple(audit), **updates}
+
+    return node
+
+
 __all__ = [
     "BASE_TAG",
     "SKIP_DIRS",
     "CodeIntegrations",
     "CommitResult",
+    "PullRequestOpener",
     "RepoClient",
     "make_apply_node",
     "make_checkout_node",
+    "make_deliver_node",
     "summarize_file_tree",
 ]

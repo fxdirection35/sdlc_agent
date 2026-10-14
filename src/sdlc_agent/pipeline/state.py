@@ -59,6 +59,10 @@ class StageName(StrEnum):
     #: QA so the verdict is evidence produced by running the suite rather than
     #: something the QA agent asserts about its own plan.
     VERIFY = "verify"
+    #: Deterministic delivery: push the verified branch and open its PR ahead
+    #: of the merge gate, so a human reviews a real diff. Present only when
+    #: code integrations are on.
+    DELIVER = "deliver"
     MERGE_REVIEW = "merge_review"
     BUDGET_REVIEW = "budget_review"
     ESCALATE = "escalate"

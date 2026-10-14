@@ -10,9 +10,11 @@ from __future__ import annotations
 
 from sdlc_agent.pipeline.codeflow import (
     CodeIntegrations,
+    PullRequestOpener,
     RepoClient,
     make_apply_node,
     make_checkout_node,
+    make_deliver_node,
 )
 from sdlc_agent.pipeline.graph import (
     GATE_ARTIFACT,
@@ -54,6 +56,7 @@ __all__ = [
     "FailingRole",
     "GraphConstructionError",
     "PipelineState",
+    "PullRequestOpener",
     "RepoClient",
     "Role",
     "RoleContext",
@@ -68,6 +71,7 @@ __all__ = [
     "initial_state",
     "make_apply_node",
     "make_checkout_node",
+    "make_deliver_node",
     "make_memory_checkpointer",
     "make_serializer",
     "make_verify_node",

@@ -182,10 +182,12 @@ class TestApplyWiring:
             "apply",
             "qa",
             "verify",
+            "deliver",
             "merge_review",
             "finalize",
         ]
         assert "apply:apply_skipped" in audit_trail(result)
+        assert "deliver:deliver_skipped" in audit_trail(result)
         assert result["status"].value == "completed"
 
     def test_the_change_is_committed_before_qa_plans(

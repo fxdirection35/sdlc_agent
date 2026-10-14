@@ -195,12 +195,22 @@ class FakeRepoClient:
     Never touches a network or a real git binary: what the graph needs to know
     is which operations were requested with which arguments, not whether git
     works. The real subprocess client has its own integration tests.
+
+    ``head`` tracks what ``head_sha`` reports - the clone base until an apply
+    moves it. Tests simulating a diverged workspace (rebuilt volume, lost
+    clone) set ``head`` directly after the apply.
     """
 
     fail_with: Exception | None = None
     clones: list[tuple[str, Path, str]] = field(default_factory=list)
     applies: list[tuple[Path, tuple[FileEdit, ...], str, str]] = field(default_factory=list)
     pushes: list[tuple[Path, str]] = field(default_factory=list)
+    #: Sequence of per-apply commit shas; defaults keep the historical
+    #: all-"f" sha so single-apply assertions stay byte-stable. A revision
+    #: loop can hand two distinct shas to prove the deliver guard follows the
+    #: *latest* verified commit.
+    shas: tuple[str, ...] = ()
+    head: str = "0" * 40
 
     def clone(self, url: str, destination: Path, *, token: str = "") -> None:
         self.clones.append((url, destination, token))
@@ -228,13 +238,18 @@ class FakeRepoClient:
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(edit.content, encoding="utf-8")
+        index = len(self.applies) - 1
+        self.head = self.shas[index] if index < len(self.shas) else "f" * 40
         return CommitResult(
-            sha="f" * 40,
+            sha=self.head,
             files_changed=tuple(sorted(edit.path for edit in edits)),
         )
 
     def push(self, root: Path, branch: str, *, token: str = "") -> None:
         self.pushes.append((root, branch))
+
+    def head_sha(self, root: Path, *, token: str = "") -> str:
+        return self.head
 
 
 @dataclass

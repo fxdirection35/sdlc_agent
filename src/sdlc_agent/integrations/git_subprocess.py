@@ -219,5 +219,9 @@ class SubprocessGit:
             timeout=self.push_timeout,
         )
 
+    def head_sha(self, root: Path, *, token: str = "") -> str:
+        """Current HEAD of the workspace, for the deliver guard."""
+        return self._git(["rev-parse", "HEAD"], cwd=root, token=token).strip()
+
 
 __all__ = ["GitCommandError", "SubprocessGit"]

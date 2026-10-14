@@ -137,6 +137,14 @@ class GithubPullRequests:
             return str(pulls[0]["html_url"])
         return None
 
+    def slug_for(self, remote: str) -> str:
+        """Owner/name for a remote on this client's git host, or raise.
+
+        Implements the pipeline seam's contract: a remote the opener cannot
+        serve raises, and the deliver node degrades to push-only delivery.
+        """
+        return repo_slug_from_remote(remote, git_host=self.git_host)
+
     def _default_branch(self, client: httpx.Client, repo: str) -> str:
         response = client.get(f"/repos/{repo}")
         if response.status_code != 200:

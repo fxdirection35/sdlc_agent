@@ -33,6 +33,7 @@ from sdlc_agent.pipeline.codeflow import (
     CodeIntegrations,
     make_apply_node,
     make_checkout_node,
+    make_deliver_node,
     summarize_file_tree,
 )
 from sdlc_agent.pipeline.roles import ROLE_INPUTS, ROLE_OUTPUTS, Role, RoleContext, RoleError
@@ -378,6 +379,15 @@ def _route_after_apply(state: PipelineState) -> str:
     return StageName.QA.value
 
 
+def _route_after_deliver(state: PipelineState) -> str:
+    """A diverged workspace escalates; a delivered (or audited-failure) run
+    continues to the merge gate - the human remains the safety net for a
+    transient push or PR outage."""
+    if state.get("status") is RunStatus.ESCALATED:
+        return StageName.ESCALATE.value
+    return StageName.MERGE_REVIEW.value
+
+
 def _route_after_role(next_stage: str) -> Any:
     """Onward, to the budget gate, or to escalation."""
 
@@ -412,13 +422,14 @@ def _route_after_gate(gate: str) -> Any:
     return route
 
 
-def _route_after_verify(max_qa_retries: int) -> Any:
-    """Merge gate on a pass, back to the developer on a bounded fail.
+def _route_after_verify(max_qa_retries: int, *, advance: str) -> Any:
+    """Onward on a pass, back to the developer on a bounded fail.
 
-    The bound is enforced here, in the flow that owns it, rather than inside the
-    QA role - a role implementation cannot forget a limit it does not hold.
-    ``NEEDS_HUMAN`` escalates immediately: missing evidence is a decision for a
-    person, not something to retry.
+    ``advance`` is the merge gate, or the deliver node that precedes it when
+    code integrations are on. The bound is enforced here, in the flow that owns
+    it, rather than inside the QA role - a role implementation cannot forget a
+    limit it does not hold. ``NEEDS_HUMAN`` escalates immediately: missing
+    evidence is a decision for a person, not something to retry.
     """
 
     def route(state: PipelineState) -> str:
@@ -433,7 +444,7 @@ def _route_after_verify(max_qa_retries: int) -> Any:
             return StageName.ESCALATE.value
 
         if gate.verdict is Verdict.APPROVED:
-            return StageName.MERGE_REVIEW.value
+            return advance
         if gate.verdict is Verdict.NEEDS_HUMAN:
             return StageName.ESCALATE.value
 
@@ -518,6 +529,14 @@ def build_graph(
             _route_after_apply,
             [StageName.QA.value, StageName.ESCALATE.value],
         )
+        # A verified change is pushed and given its PR before the merge gate,
+        # so the human reviews a real diff.
+        graph.add_node(StageName.DELIVER.value, make_deliver_node(code, StageName.DELIVER.value))
+        graph.add_conditional_edges(
+            StageName.DELIVER.value,
+            _route_after_deliver,
+            [StageName.MERGE_REVIEW.value, StageName.ESCALATE.value],
+        )
 
     role_next = {
         StageName.PM.value: StageName.PRD_REVIEW.value,
@@ -540,7 +559,13 @@ def build_graph(
             [revise, advance, StageName.ESCALATE.value],
         )
 
-    # QA plans; verify executes and derives the verdict.
+    # QA plans; verify executes and derives the verdict. With code integrations
+    # the verified change is delivered (pushed, PR opened) before the merge
+    # gate; without them the old artifact-only topology is byte-for-byte what
+    # it was.
+    advance_after_verify = (
+        StageName.DELIVER.value if code is not None else StageName.MERGE_REVIEW.value
+    )
     graph.add_conditional_edges(
         StageName.QA.value,
         _route_after_role(StageName.VERIFY.value),
@@ -548,9 +573,9 @@ def build_graph(
     )
     graph.add_conditional_edges(
         StageName.VERIFY.value,
-        _route_after_verify(config.pipeline.max_qa_retries),
+        _route_after_verify(config.pipeline.max_qa_retries, advance=advance_after_verify),
         [
-            StageName.MERGE_REVIEW.value,
+            advance_after_verify,
             StageName.DEVELOPER.value,
             StageName.ESCALATE.value,
             StageName.BUDGET_REVIEW.value,
