@@ -8,7 +8,12 @@ produced an artifact.
 
 from __future__ import annotations
 
-from sdlc_agent.pipeline.codeflow import CodeIntegrations, RepoClient, make_checkout_node
+from sdlc_agent.pipeline.codeflow import (
+    CodeIntegrations,
+    RepoClient,
+    make_apply_node,
+    make_checkout_node,
+)
 from sdlc_agent.pipeline.graph import (
     GATE_ARTIFACT,
     GATE_FLOW,
@@ -61,6 +66,7 @@ __all__ = [
     "TestExecutor",
     "build_graph",
     "initial_state",
+    "make_apply_node",
     "make_checkout_node",
     "make_memory_checkpointer",
     "make_serializer",

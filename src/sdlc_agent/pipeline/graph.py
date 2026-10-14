@@ -31,6 +31,7 @@ from sdlc_agent.domain.product import Requirement
 from sdlc_agent.domain.qa import QualityGate
 from sdlc_agent.pipeline.codeflow import (
     CodeIntegrations,
+    make_apply_node,
     make_checkout_node,
     summarize_file_tree,
 )
@@ -366,6 +367,17 @@ def _route_after_checkout(state: PipelineState) -> str:
     return StageName.PM.value
 
 
+def _route_after_apply(state: PipelineState) -> str:
+    """A failed apply escalates; a skipped or applied one proceeds to QA.
+
+    QA plans against the workspace as it now stands, so it must see the code
+    the apply node actually wrote, not the claims it was handed.
+    """
+    if state.get("status") is RunStatus.ESCALATED:
+        return StageName.ESCALATE.value
+    return StageName.QA.value
+
+
 def _route_after_role(next_stage: str) -> Any:
     """Onward, to the budget gate, or to escalation."""
 
@@ -498,11 +510,21 @@ def build_graph(
             _route_after_checkout,
             [StageName.PM.value, StageName.ESCALATE.value],
         )
+        # The developer hands file-edit claims to the patch bridge, which
+        # commits them before QA plans against the resulting code.
+        graph.add_node(StageName.APPLY.value, make_apply_node(code, StageName.APPLY.value))
+        graph.add_conditional_edges(
+            StageName.APPLY.value,
+            _route_after_apply,
+            [StageName.QA.value, StageName.ESCALATE.value],
+        )
 
     role_next = {
         StageName.PM.value: StageName.PRD_REVIEW.value,
         StageName.ARCHITECT.value: StageName.DESIGN_REVIEW.value,
-        StageName.DEVELOPER.value: StageName.QA.value,
+        StageName.DEVELOPER.value: (
+            StageName.APPLY.value if code is not None else StageName.QA.value
+        ),
     }
     for stage, next_stage in role_next.items():
         graph.add_conditional_edges(

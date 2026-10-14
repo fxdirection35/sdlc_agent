@@ -98,6 +98,16 @@ def make_artifact(kind: ArtifactKind, context: RoleContext) -> Artifact:
                 "branch": "feat/csv-export",
                 "commit_sha": "a1b2c3d4e5f6",
                 "files_changed": ("src/reports/export.py", "tests/test_export.py"),
+                "edits": (
+                    {
+                        "path": "src/reports/export.py",
+                        "content": "def stream_csv(rows):\n    ...\n",
+                    },
+                    {
+                        "path": "tests/test_export.py",
+                        "content": "def test_export():\n    ...\n",
+                    },
+                ),
                 "summary": "Added a streaming CSV writer behind the existing endpoint.",
             }
         )

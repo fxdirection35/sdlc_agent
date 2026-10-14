@@ -48,6 +48,9 @@ class StageName(StrEnum):
     ARCHITECT = "architect"
     DESIGN_REVIEW = "design_review"
     DEVELOPER = "developer"
+    #: Deterministic patch bridge: the developer's file-edit claims become
+    #: commits in the workspace. Present only when code integrations are on.
+    APPLY = "apply"
     QA = "qa"
     #: Deterministic clone of the target repository into a per-run workspace.
     #: Present only when the graph was built with code integrations.

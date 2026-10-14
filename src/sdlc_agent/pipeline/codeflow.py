@@ -1,9 +1,9 @@
 """Code-flow helpers: bridging the pipeline's artifacts to a real repository.
 
-This module grows into the checkout/apply/deliver nodes. It currently holds
-the repo-context primitives: the bounded tree renderer for prompts, and the
-:class:`RepoClient` protocol the deterministic nodes will drive. Real
-implementations (subprocess git, GitHub REST) live in
+This module holds the deterministic code-flow nodes - checkout and apply, with
+deliver to follow - plus the repo-context primitives they share: the bounded
+tree renderer for prompts and the :class:`RepoClient` protocol the nodes
+drive. Real implementations (subprocess git, GitHub REST) live in
 :mod:`sdlc_agent.integrations`; tests use fakes against this protocol, the
 same seam :class:`~sdlc_agent.pipeline.verify.TestExecutor` established.
 
@@ -24,7 +24,8 @@ from urllib.parse import urlsplit
 # it from langgraph.config trips mypy's explicit-re-export check.
 from langchain_core.runnables import RunnableConfig
 
-from sdlc_agent.domain.engineering import FileEdit
+from sdlc_agent.domain import ArtifactKind
+from sdlc_agent.domain.engineering import CodeChange, FileEdit
 from sdlc_agent.pipeline.state import AuditEvent, PipelineState, RunStatus
 
 #: Directories that are never interesting to a role reading a repository:
@@ -220,6 +221,12 @@ def _run_id(config: RunnableConfig, state: PipelineState) -> str:
     return str(thread_id) if thread_id else str(state["requirement"].artifact_id)
 
 
+def _branch_for(config: RunnableConfig, state: PipelineState) -> str:
+    """Deterministic branch name: one branch per run, stable across revision
+    loops, so a pushed PR updates in place instead of spawning siblings."""
+    return f"sdlc-agent/{_run_id(config, state)}"
+
+
 def _audit(stage: str, event: str, detail: str = "") -> tuple[AuditEvent, ...]:
     return (AuditEvent(stage=stage, event=event, detail=detail),)
 
@@ -277,12 +284,88 @@ def make_checkout_node(code: CodeIntegrations, stage: str) -> Any:
     return node
 
 
+def make_apply_node(code: CodeIntegrations, stage: str) -> Any:
+    """Build the patch-bridge node: developer claims -> repository commits.
+
+    The developer's ``CodeChange`` carries typed :class:`FileEdit` claims; this
+    node is the only place they become files. Without a workspace the node is a
+    pass-through so eval-shaped runs keep their exact topology. With one, a
+    code change that claims no edits escalates - today that would slide
+    through as a fabricated branch name, and a green run that changed no code
+    is the fakest green there is.
+
+    The artifact is rebuilt via ``model_validate(dump | updates)`` so the
+    ``artifact_id`` survives: ``TestPlan.code_change_id`` back-pointers must
+    not break because the platform filled in what only it could know.
+    """
+
+    def node(state: PipelineState, config: RunnableConfig) -> dict[str, Any]:
+        repo_root = state.get("repo_root", "")
+        if not repo_root:
+            return {"audit": _audit(stage, "apply_skipped", "run has no workspace")}
+
+        change = state.get("artifacts", {}).get(ArtifactKind.CODE_CHANGE)
+        if not isinstance(change, CodeChange):
+            return {
+                "status": RunStatus.ESCALATED,
+                "audit": _audit(stage, "apply_failed", "no code change to apply"),
+            }
+        if not change.edits:
+            return {
+                "status": RunStatus.ESCALATED,
+                "audit": _audit(
+                    stage,
+                    "apply_failed",
+                    "developer produced no file edits for a real repository",
+                ),
+            }
+
+        branch = _branch_for(config, state)
+        try:
+            commit = code.repo.apply_and_commit(
+                Path(repo_root),
+                change.edits,
+                branch,
+                f"sdlc-agent: {state['requirement'].title}",
+                token=code.token,
+            )
+        except (RuntimeError, ValueError, OSError) as exc:
+            return {
+                "status": RunStatus.ESCALATED,
+                "audit": _audit(stage, "apply_failed", str(exc)),
+            }
+
+        updated = CodeChange.model_validate(
+            {
+                **change.model_dump(),
+                "branch": branch,
+                "commit_sha": commit.sha,
+                "files_changed": commit.files_changed,
+            }
+        )
+        detail = f"{branch} @ {commit.sha[:12]}, {len(commit.files_changed)} file(s)"
+        claimed = {edit.path for edit in change.edits}
+        missing = claimed - set(commit.files_changed)
+        if missing:
+            # The commit landed; some claimed paths made no actual difference
+            # (e.g. content identical to what is already there). Informative,
+            # not fatal - the PR diff is the truth the reviewer will see.
+            detail += f"; claimed but unchanged: {', '.join(sorted(missing))}"
+        return {
+            "artifacts": {ArtifactKind.CODE_CHANGE: updated},
+            "audit": _audit(stage, "applied", detail),
+        }
+
+    return node
+
+
 __all__ = [
     "BASE_TAG",
     "SKIP_DIRS",
     "CodeIntegrations",
     "CommitResult",
     "RepoClient",
+    "make_apply_node",
     "make_checkout_node",
     "summarize_file_tree",
 ]
