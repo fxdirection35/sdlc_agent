@@ -86,4 +86,16 @@ export ANTHROPIC_API_KEY=sk-ant-...
 
 注意 `temperature` 默认是 `None` 而不是数字：当代 Claude 模型对任何非默认采样值都会返回 400。质量与成本的调节杆是 `effort`。
 
+## 数据库
+
+人工门禁依赖 checkpoint 才能跨进程存活，生产用 Postgres（`postgres_checkpointer`，见 `src/sdlc_agent/pipeline/postgres.py`）。连接串是凭据，走环境变量 `SDLC_DATABASE_URL`，不进配置文件。
+
+测试默认不需要数据库。要跑「门禁跨重启存活」的集成测试（`tests/pipeline/test_postgres.py`），提供一个可写入的 Postgres：
+
+```bash
+export SDLC_TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/sdlc_test
+```
+
+未设置时该测试跳过——跳过是诚实的；对着假的数据库跑绿不是。
+
 

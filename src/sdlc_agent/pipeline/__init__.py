@@ -17,6 +17,7 @@ from sdlc_agent.pipeline.graph import (
     build_graph,
     initial_state,
 )
+from sdlc_agent.pipeline.postgres import postgres_checkpointer
 from sdlc_agent.pipeline.roles import (
     ROLE_INPUTS,
     ROLE_OUTPUTS,
@@ -61,4 +62,5 @@ __all__ = [
     "make_serializer",
     "make_verify_node",
     "msgpack_allowlist",
+    "postgres_checkpointer",
 ]

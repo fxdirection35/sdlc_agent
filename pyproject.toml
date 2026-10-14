@@ -13,6 +13,11 @@ dependencies = [
     # interrupt() gates and crash recovery durable.
     "langgraph>=1.2,<2",
     "langgraph-checkpoint-postgres>=3.1,<4",
+    # langgraph-checkpoint-postgres depends on bare psycopg, whose pure-Python
+    # build needs a system libpq that is not there on a stock Windows or
+    # slim-container image. Pinning the binary extra guarantees a working
+    # wheel everywhere this project is installed.
+    "psycopg[binary]>=3.2,<4",
     # L4 LLM gateway and structured output. litellm gives one interface over
     # every provider; instructor validates and retries until the schema holds.
     "litellm>=1.105,<2",
