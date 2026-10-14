@@ -1,0 +1,16 @@
+# Secrets never enter a build context: .env holds real keys, config.yaml is
+# runtime-mounted, never baked. Everything else here is local toolchain
+# state - huge, and irrelevant to the image.
+.env
+.env.*
+config.yaml
+
+.git
+.venv
+**/__pycache__
+**/node_modules
+frontend/dist
+.mypy_cache
+.ruff_cache
+.pytest_cache
+.pytest-tmp

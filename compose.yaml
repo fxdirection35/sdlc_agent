@@ -1,0 +1,67 @@
+# Docker Compose deployment: the API service, its Postgres, and the built
+# SPA - one command on one team-internal server.
+#
+#   cp config.example.yaml config.yaml      # then edit models / budget
+#   printf 'POSTGRES_PASSWORD=...\nANTHROPIC_API_KEY=sk-ant-...\n' > .env
+#   docker compose up --build -d            # http://<host>:8000
+#
+# (.env is gitignored; Compose reads it automatically from this directory.)
+#
+# Secrets appear here ONLY as ${VAR:?} references - the compose-side analog
+# of the service's own require_startup_credentials: a missing variable
+# fails `up` immediately and by name, instead of booting green-but-broken.
+
+name: sdlc-agent
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: sdlc
+      # By reference only; the value lives in .env (gitignored).
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: sdlc
+    volumes:
+      # Named volume: pending human gates survive `docker compose restart`
+      # and host reboots. That durability is the entire reason for Postgres
+      # in this stack - in-memory checkpoints lose every open gate.
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      # -U/-d match POSTGRES_USER/POSTGRES_DB above; the api side waits on
+      # this check instead of racing the database through its first boot.
+      test: ["CMD-SHELL", "pg_isready -U sdlc -d sdlc"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      # Defaults to the pip mirror this team needs (CLAUDE.md); override
+      # when building outside CN networks:
+      #   PIP_INDEX_URL=https://pypi.org/simple docker compose build
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+    image: sdlc-agent-api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # The mounted config file (see volumes); tests pin mount target and
+      # this value to the same path.
+      SDLC_CONFIG_PATH: /app/config/config.yaml
+      # Host is the db SERVICE name, never localhost - inside the api
+      # container, localhost is the container itself.
+      SDLC_DATABASE_URL: postgresql://sdlc:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/sdlc
+      # Named exactly as config.yaml's providers.anthropic.api_key_env says;
+      # missing fails `up`, same as the database password above.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in .env}
+    volumes:
+      - ./config.yaml:/app/config/config.yaml:ro
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+volumes:
+  db-data:

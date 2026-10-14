@@ -137,4 +137,14 @@ npm run build   # tsc --noEmit + vite build -> dist/
 2. **空的可选字段要省略而不是发空串**：reviewer 留空时 graph 默认 "unspecified"，空串会覆盖成空（前后端两侧都有此规则，两侧测试都钉住）。
 3. 开发模式 `npm run dev`，`/api` 代理到 `localhost:8000`；部署用 `SDLC_STATIC_DIR=frontend/dist` 让服务同源服务 SPA（挂载注册在所有 `/api` 路由之后，API 永远优先）。
 
+## 部署（Docker Compose）
+
+`compose.yaml` + 多阶段 `Dockerfile`（node 构建 SPA → python:3.12-slim 装 `.[sandbox]` 并同源服务 SPA）。**开发机没有 Docker**：结构由 `tests/test_deploy.py` 锁定（环境变量名与 `service/app.py` 常量交叉校验、`${VAR:?}` 凭据引用、挂载点与 `SDLC_CONFIG_PATH` 一致等），`docker compose config` 校验在有 CLI 的机器上跑、没有则诚实跳过。首次真实构建/启动请在有 Docker 的机器上做。
+
+1. **凭据只以 `${VAR:?}` 引用出现在 compose 里**：`up` 时缺变量按名字直接报错——这是 `require_startup_credentials` 的 compose 侧对应物，绝不带空凭据起栈。
+2. `SDLC_DATABASE_URL` 的主机名是 `db`（service 名），不是 localhost——容器内 localhost 是容器自己。
+3. **镜像必须装 `sandbox` extra**：`service.main` 启动即 import `sdlc_agent.sandbox`（`executor_from_env`），core-only 镜像会无限 boot-loop，而不是首次用到才失败。
+4. uvicorn 必须绑 `0.0.0.0`（CMD 钉死）：容器默认 127.0.0.1 会让端口映射转发到空气。
+5. `config.yaml` 运行时只读挂载（挂载点与 `SDLC_CONFIG_PATH` 一致由测试锁定），密钥永不进镜像层；`psycopg[binary]` 自带 wheel，slim 镜像无需系统 libpq。
+
 
