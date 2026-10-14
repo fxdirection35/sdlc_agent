@@ -18,6 +18,10 @@ Why each contract exists:
 - The image installs the ``sandbox`` extra: ``service.main`` composes the app
   at import time and imports ``sdlc_agent.sandbox`` unconditionally, so a
   core-only image crashes at boot forever, not at first use.
+- The image installs git (slim ships without it) and pre-owns the workspaces
+  directory: the code-flow nodes shell out to git, and a named volume's first
+  mount inherits the image entry's ownership - without the chown the non-root
+  service cannot write a single clone.
 - uvicorn binds 0.0.0.0: the container-side default leaves the published port
   forwarding to nothing.
 - The SPA directory the Dockerfile copies equals the ``SDLC_STATIC_DIR`` it
@@ -37,7 +41,12 @@ from typing import Any, cast
 import pytest
 import yaml
 
-from sdlc_agent.service.app import CONFIG_PATH_ENV, DATABASE_URL_ENV, STATIC_DIR_ENV
+from sdlc_agent.service.app import (
+    CONFIG_PATH_ENV,
+    DATABASE_URL_ENV,
+    STATIC_DIR_ENV,
+    WORKSPACES_DIR_ENV,
+)
 
 _ROOT = Path(__file__).resolve().parents[1]
 _COMPOSE = _ROOT / "compose.yaml"
@@ -120,7 +129,9 @@ def test_credentials_are_references_not_values() -> None:
         "db password must fail `up` when unset"
     )
     api_key = _api_environment()["DEEPSEEK_API_KEY"]
-    assert str(api_key).startswith("${DEEPSEEK_API_KEY:?")
+    assert str(api_key).startswith("${DEEPSEEK_API_KEY:?"), "LLM key must fail `up` when unset"
+    gh_token = _api_environment()["GH_TOKEN"]
+    assert str(gh_token).startswith("${GH_TOKEN:?"), "github token must fail `up` when unset"
     url = _api_environment()[DATABASE_URL_ENV]
     assert isinstance(url, str)
     assert re.search(r"\$\{POSTGRES_PASSWORD:\?", url), "URL must not inline the password"
@@ -151,6 +162,43 @@ def test_dockerfile_installs_the_sandbox_extra() -> None:
     """A core-only image boot-loops: main.py imports sdlc_agent.sandbox at
     startup, so the extra is a boot requirement, not a feature flag."""
     assert re.search(r'pip install[^\n]*"\.\[sandbox\]"', _dockerfile())
+
+
+def test_dockerfile_installs_git_for_the_code_flow_nodes() -> None:
+    """checkout/apply/deliver drive git through subprocess; slim ships without
+    it. Its absence is a boot-green, first-run-red image - exactly the shape
+    these contracts exist to prevent."""
+    assert re.search(r"apt-get install[^\n]*git", _dockerfile())
+
+
+def test_dockerfile_declares_and_owns_the_workspaces_dir() -> None:
+    """A named volume's first mount copies the image directory's ownership:
+    without the chown the non-root service cannot write into it, and every
+    run escalates at checkout - after booting green."""
+    text = _dockerfile()
+    declared = re.search(rf"{WORKSPACES_DIR_ENV}=(\S+)", text)
+    assert declared, "SDLC_WORKSPACES_DIR must be declared in the image"
+    assert declared.group(1) == "/app/workspaces"
+    assert re.search(r"chown sdlc:sdlc /app/workspaces", text), (
+        "the volume inherits this entry's ownership on first mount"
+    )
+
+
+def test_workspaces_are_a_named_volume_at_the_declared_dir() -> None:
+    """Gates sit for days: per-run clones must survive restarts, so the env
+    name (matching the app constant) must point at a named volume - a typo'd
+    variable silently falls back to the system temp and every restart loses
+    every workspace."""
+    env = _api_environment()
+    assert env[WORKSPACES_DIR_ENV] == "/app/workspaces"
+    volumes = _services()["api"]["volumes"]
+    assert isinstance(volumes, list)
+    assert any(isinstance(v, str) and v == "workspaces:/app/workspaces" for v in volumes), (
+        f"no workspaces volume mounted at /app/workspaces: {volumes}"
+    )
+    declared = _compose()["volumes"]
+    assert isinstance(declared, dict)
+    assert "workspaces" in declared
 
 
 def test_dockerfile_base_satisfies_the_python_floor() -> None:
@@ -192,7 +240,12 @@ def test_compose_config_validates() -> None:
     completed = subprocess.run(
         ["docker", "compose", "config", "--quiet"],
         cwd=_ROOT,
-        env={**os.environ, "POSTGRES_PASSWORD": "x", "DEEPSEEK_API_KEY": "y"},
+        env={
+            **os.environ,
+            "POSTGRES_PASSWORD": "x",
+            "DEEPSEEK_API_KEY": "y",
+            "GH_TOKEN": "z",
+        },
         capture_output=True,
         text=True,
         timeout=60,

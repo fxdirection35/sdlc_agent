@@ -2,7 +2,7 @@
 # SPA - one command on one team-internal server.
 #
 #   cp config.example.yaml config.yaml      # then edit models / budget
-#   printf 'POSTGRES_PASSWORD=...\nDEEPSEEK_API_KEY=sk-...\n' > .env
+#   printf 'POSTGRES_PASSWORD=...\nDEEPSEEK_API_KEY=sk-...\nGH_TOKEN=github_pat-...\n' > .env
 #   docker compose up --build -d            # http://<host>:8000
 #
 # (.env is gitignored; Compose reads it automatically from this directory.)
@@ -58,11 +58,20 @@ services:
       # missing fails `up`, same as the database password above. Routing a
       # deployment back to Claude means changing this AND the config's roles.
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in .env}
+      # Named exactly as config.yaml's github.api_token_env says; the shipped
+      # example carries the github section, so code flow needs it at boot.
+      GH_TOKEN: ${GH_TOKEN:?set GH_TOKEN in .env}
+      # Per-run repository clones; the named volume below, so a gate that
+      # sits for days still finds the same workspace on resume (and the
+      # deliver node's sha guard escalates honestly if it ever cannot).
+      SDLC_WORKSPACES_DIR: /app/workspaces
     volumes:
       - ./config.yaml:/app/config/config.yaml:ro
+      - workspaces:/app/workspaces
     ports:
       - "8000:8000"
     restart: unless-stopped
 
 volumes:
   db-data:
+  workspaces:

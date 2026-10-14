@@ -20,12 +20,24 @@ RUN npm run build # tsc --noEmit + vite build -> dist/
 # import time (service.main -> executor_from_env -> sdlc_agent.sandbox) - a
 # core-only image would crash at boot, not at first use. psycopg[binary]
 # ships wheels, so slim needs no system libpq.
+#
+# Installs git because the code-flow nodes (checkout/apply/deliver) drive it
+# through subprocess: slim ships without it, and its absence is a boot-green,
+# first-run-red image.
 # ---------------------------------------------------------------------------
 FROM python:3.12-slim AS api
 # pip mirror as a build arg, defaulting to the one this team needs
 # (CLAUDE.md): files.pythonhosted.org times out from CN networks. Override
 # with PIP_INDEX_URL=https://pypi.org/simple when building elsewhere.
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+# Same story for apt: deb.debian.org is unreachable from some CN networks.
+# Override with APT_MIRROR=deb.debian.org when building elsewhere.
+ARG APT_MIRROR=mirrors.tuna.tsinghua.edu.cn
+RUN sed -i "s/deb.debian.org/${APT_MIRROR}/g; s/security.debian.org/${APT_MIRROR}/g" \
+        /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # README.md is referenced by pyproject.toml; hatchling fails without it.
 COPY pyproject.toml README.md ./
@@ -39,8 +51,14 @@ COPY --from=frontend /build/dist/ /app/static/
 ENV SDLC_STATIC_DIR=/app/static \
     SDLC_CONFIG_PATH=/app/config/config.yaml
 
-# Nothing in the service writes inside /app; run as a plain user anyway.
 RUN useradd --create-home --shell /usr/sbin/nologin sdlc
+# Per-run repository clones (SDLC_WORKSPACES_DIR). Pre-created with sdlc
+# ownership because a named volume's FIRST mount copies this directory's
+# ownership - without it the non-root service cannot write into the volume
+# and every run escalates at checkout.
+RUN mkdir -p /app/workspaces && chown sdlc:sdlc /app/workspaces
+ENV SDLC_WORKSPACES_DIR=/app/workspaces
+# Nothing in the service writes inside /app; run as a plain user anyway.
 USER sdlc
 
 # No curl on slim; health is a stdlib one-liner against the service's own
