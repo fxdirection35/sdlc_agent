@@ -1,15 +1,26 @@
-"""Tests for the repo-context primitives in pipeline.codeflow.
+"""Tests for the code-flow primitives in pipeline.codeflow.
 
 The tree summarizer feeds prompts, so its output must be bounded (a whole
 repository would blow the context window) and deterministic (same tree in,
-same bytes out, so prompt diffs stay reviewable).
+same bytes out, so prompt diffs stay reviewable). The checkout node tests
+drive the node directly; graph-level wiring lives in test_graph.py.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
-from sdlc_agent.pipeline.codeflow import SKIP_DIRS, summarize_file_tree
+from sdlc_agent.pipeline.codeflow import (
+    SKIP_DIRS,
+    CodeIntegrations,
+    make_checkout_node,
+    summarize_file_tree,
+)
+from sdlc_agent.pipeline.graph import initial_state
+from sdlc_agent.pipeline.state import PipelineState, RunStatus
+
+from .helpers import FakeRepoClient, make_requirement
 
 
 def make_tree(tmp_path: Path) -> Path:
@@ -99,3 +110,99 @@ class TestSummarizeFileTree:
         text = summarize_file_tree(repo, max_chars=200)
 
         assert len(text.split("… (truncated at 200 characters)")[0]) <= 200
+
+
+def run_checkout(
+    code: CodeIntegrations,
+    source_repo: str,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Invoke the checkout node directly with an optional config override."""
+    requirement = make_requirement().model_copy(update={"source_repo": source_repo})
+    node = make_checkout_node(code, "checkout")
+    result: dict[str, Any] = node(cast(PipelineState, initial_state(requirement)), config or {})
+    return result
+
+
+class TestCheckoutNode:
+    def test_clones_an_https_remote_into_a_per_run_workspace(self, tmp_path: Path) -> None:
+        repo = FakeRepoClient()
+        code = CodeIntegrations(repo=repo, workspaces_dir=tmp_path, token="ghp_sentinel_x")
+
+        result = run_checkout(
+            code, "https://github.com/example/reports.git", {"configurable": {"thread_id": "t-9"}}
+        )
+
+        assert result["repo_root"] == str(tmp_path / "t-9")
+        assert repo.clones == [
+            ("https://github.com/example/reports.git", tmp_path / "t-9", "ghp_sentinel_x")
+        ]
+
+    def test_without_a_thread_it_falls_back_to_the_requirement_id(self, tmp_path: Path) -> None:
+        """Direct node invocation (no compiled graph) still names the workspace
+        deterministically - by the only durable id the run has."""
+        requirement = make_requirement()
+        code = CodeIntegrations(repo=FakeRepoClient(), workspaces_dir=tmp_path)
+        node = make_checkout_node(code, "checkout")
+
+        result: dict[str, Any] = node(cast(PipelineState, initial_state(requirement)), {})
+
+        assert result["repo_root"] == str(tmp_path / str(requirement.artifact_id))
+
+    def test_a_synthetic_source_skips_without_touching_the_client(self, tmp_path: Path) -> None:
+        repo = FakeRepoClient()
+        code = CodeIntegrations(repo=repo, workspaces_dir=tmp_path, token="ghp_sentinel_x")
+
+        result = run_checkout(code, "eval://golden/dev_implement_writer")
+
+        assert result["repo_root"] == ""
+        assert repo.clones == []
+        events = result["audit"]
+        assert events[0].event == "checkout_skipped"
+        assert "not an http(s) remote" in events[0].detail
+
+    def test_an_existing_workspace_is_reused_without_cloning(self, tmp_path: Path) -> None:
+        repo = FakeRepoClient()
+        code = CodeIntegrations(repo=repo, workspaces_dir=tmp_path)
+        workspace = tmp_path / "t-9"
+        workspace.mkdir()
+        (workspace / ".git").mkdir()
+
+        result = run_checkout(
+            code, "https://github.com/example/reports.git", {"configurable": {"thread_id": "t-9"}}
+        )
+
+        assert result["repo_root"] == str(workspace)
+        assert repo.clones == []
+
+    def test_a_partial_clone_leftover_is_redone(self, tmp_path: Path) -> None:
+        """A directory without .git is the corpse of a failed clone; it must
+        not poison the retry with 'destination already exists'."""
+        repo = FakeRepoClient()
+        code = CodeIntegrations(repo=repo, workspaces_dir=tmp_path)
+        workspace = tmp_path / "t-9"
+        workspace.mkdir()
+        (workspace / "stray.tmp").write_text("junk", encoding="utf-8")
+
+        result = run_checkout(
+            code, "https://github.com/example/reports.git", {"configurable": {"thread_id": "t-9"}}
+        )
+
+        assert result["repo_root"] == str(workspace)
+        assert len(repo.clones) == 1
+        assert (workspace / ".git").exists()
+
+    def test_a_failed_clone_escalates_without_leaking_the_token(self, tmp_path: Path) -> None:
+        from sdlc_agent.integrations import GitCommandError
+
+        repo = FakeRepoClient(
+            fail_with=GitCommandError(["git", "clone", "https://x"], 128, "fatal: no access")
+        )
+        code = CodeIntegrations(repo=repo, workspaces_dir=tmp_path, token="ghp_sentinel_x")
+
+        result = run_checkout(code, "https://github.com/example/reports.git")
+
+        assert result["status"] is RunStatus.ESCALATED
+        events = result["audit"]
+        assert events[0].event == "checkout_failed"
+        assert "ghp_sentinel_x" not in events[0].detail

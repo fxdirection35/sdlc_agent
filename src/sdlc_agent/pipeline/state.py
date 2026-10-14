@@ -49,6 +49,9 @@ class StageName(StrEnum):
     DESIGN_REVIEW = "design_review"
     DEVELOPER = "developer"
     QA = "qa"
+    #: Deterministic clone of the target repository into a per-run workspace.
+    #: Present only when the graph was built with code integrations.
+    CHECKOUT = "checkout"
     #: Deterministic test execution, not an agent handoff. Kept separate from
     #: QA so the verdict is evidence produced by running the suite rather than
     #: something the QA agent asserts about its own plan.
@@ -121,6 +124,11 @@ class PipelineState(TypedDict):
     gate_revisions: Annotated[dict[str, int], _merge_mappings]
     #: The rejection comment handed back to the role that must revise.
     feedback: str
+    #: Workspace directory of the cloned target repository, empty when the run
+    #: has none (no code integrations, or a synthetic eval source). Carried in
+    #: state rather than re-derived so a resumed process finds the same path
+    #: the run started with.
+    repo_root: str
     #: Terminal outcome once set.
     status: RunStatus
     #: Which role node was blocked by the budget guard, so the budget review

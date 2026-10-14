@@ -17,7 +17,13 @@ import pytest
 
 from sdlc_agent.config import PlatformConfig
 from sdlc_agent.domain import PipelineRole
-from sdlc_agent.pipeline import ScriptedRole, StubExecutor, build_graph
+from sdlc_agent.pipeline import (
+    CodeIntegrations,
+    ScriptedRole,
+    StubExecutor,
+    TestExecutor,
+    build_graph,
+)
 
 from .helpers import ROLE_KINDS, make_artifact, make_requirement
 
@@ -84,11 +90,12 @@ def make_graph(
 
     def factory(
         config: PlatformConfig,
-        executor: StubExecutor | None = None,
+        executor: TestExecutor | None = None,
+        code: CodeIntegrations | None = None,
         **role_kwargs: Any,
     ) -> tuple[Any, dict[PipelineRole, ScriptedRole]]:
         roles = make_roles(**role_kwargs)
-        return build_graph(roles, config, executor or StubExecutor()), roles
+        return build_graph(roles, config, executor or StubExecutor(), code=code), roles
 
     return factory
 

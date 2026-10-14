@@ -13,12 +13,19 @@ same tree in, same text out, so prompt diffs stay reviewable.
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
+from urllib.parse import urlsplit
+
+# RunnableConfig is re-exported by langgraph's own docs from here; importing
+# it from langgraph.config trips mypy's explicit-re-export check.
+from langchain_core.runnables import RunnableConfig
 
 from sdlc_agent.domain.engineering import FileEdit
+from sdlc_agent.pipeline.state import AuditEvent, PipelineState, RunStatus
 
 #: Directories that are never interesting to a role reading a repository:
 #: build output, dependency trees, caches. Skipping them keeps the summary
@@ -175,4 +182,107 @@ class RepoClient(Protocol):
         ...
 
 
-__all__ = ["BASE_TAG", "SKIP_DIRS", "CommitResult", "RepoClient", "summarize_file_tree"]
+@dataclass(frozen=True, slots=True)
+class CodeIntegrations:
+    """The real-code bundle the graph needs, injected as one seam.
+
+    Presence is the feature switch: ``build_graph(code=None)`` builds the old
+    artifact-only topology; a ``CodeIntegrations`` adds the checkout/apply/
+    deliver nodes. The token lives in memory only - resolved once at startup,
+    passed through to the client per call, never written to state, audit,
+    checkpoints or disk.
+
+    Attributes:
+        repo: The git seam. Implementations keep credentials out of argv and
+            out of on-disk git configuration.
+        workspaces_dir: Parent of the per-run clone directories. One run's
+            workspace is ``workspaces_dir / run_id``, so gates that sit for
+            days find the same clone on resume.
+        token: Remote credentials for https origins; empty for local or
+            public-write setups.
+    """
+
+    repo: RepoClient
+    workspaces_dir: Path
+    token: str = ""
+
+
+def _run_id(config: RunnableConfig, state: PipelineState) -> str:
+    """Identify the run for workspace naming: the LangGraph thread id.
+
+    The thread id is what the checkpointer keys resumes on, so it is already
+    the run's durable identity. Falls back to the requirement's id for direct
+    node invocation outside a compiled graph (tests), which is unique per run
+    but not resumable - exactly the situation the fallback fits.
+    """
+    configurable = (config or {}).get("configurable") or {}
+    thread_id = configurable.get("thread_id")
+    return str(thread_id) if thread_id else str(state["requirement"].artifact_id)
+
+
+def _audit(stage: str, event: str, detail: str = "") -> tuple[AuditEvent, ...]:
+    return (AuditEvent(stage=stage, event=event, detail=detail),)
+
+
+def make_checkout_node(code: CodeIntegrations, stage: str) -> Any:
+    """Build the node that gives a run its workspace, or honestly skips.
+
+    A run whose requirement names an http(s) remote exists to change code, so
+    a failed clone escalates rather than degrading to artifact-only mode -
+    that degradation would be a green run that cannot deliver. Everything
+    else skips with an audit trail: synthetic eval sources, and local paths
+    the auth layer deliberately does not scope credentials to.
+
+    Re-execution is safe: an existing workspace with a ``.git`` is reused, a
+    leftover directory without one (a clone that died halfway) is removed
+    before cloning again.
+    """
+
+    def node(state: PipelineState, config: RunnableConfig) -> dict[str, Any]:
+        requirement = state["requirement"]
+        scheme = urlsplit(requirement.source_repo).scheme
+        if scheme not in ("http", "https"):
+            named = scheme if scheme else "a local path"
+            return {
+                "repo_root": "",
+                "audit": _audit(
+                    stage, "checkout_skipped", f"source is not an http(s) remote: {named}"
+                ),
+            }
+
+        workspace = code.workspaces_dir / _run_id(config, state)
+        if (workspace / ".git").exists():
+            return {
+                "repo_root": str(workspace),
+                "audit": _audit(stage, "checkout_reused", str(workspace)),
+            }
+        if workspace.exists():
+            # Not a repository, so nothing of value: the corpse of a failed
+            # clone. The directory belongs to this pipeline alone.
+            shutil.rmtree(workspace, ignore_errors=True)
+        try:
+            code.repo.clone(requirement.source_repo, workspace, token=code.token)
+        except (RuntimeError, OSError) as exc:
+            # RuntimeError covers GitCommandError without making the pipeline
+            # depend on the integrations layer; the message carries no token.
+            return {
+                "status": RunStatus.ESCALATED,
+                "audit": _audit(stage, "checkout_failed", str(exc)),
+            }
+        return {
+            "repo_root": str(workspace),
+            "audit": _audit(stage, "checkout_cloned", f"{requirement.source_repo} -> {workspace}"),
+        }
+
+    return node
+
+
+__all__ = [
+    "BASE_TAG",
+    "SKIP_DIRS",
+    "CodeIntegrations",
+    "CommitResult",
+    "RepoClient",
+    "make_checkout_node",
+    "summarize_file_tree",
+]

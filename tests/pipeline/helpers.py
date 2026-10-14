@@ -8,20 +8,25 @@ pytest's collection model, which is why they live here.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from langgraph.types import Command
 
 from sdlc_agent.domain import Artifact, ArtifactKind, PipelineRole
-from sdlc_agent.domain.engineering import CodeChange, Design
+from sdlc_agent.domain.engineering import CodeChange, Design, FileEdit
 from sdlc_agent.domain.product import (
     AcceptanceCriterion,
     ProductRequirements,
     Requirement,
 )
-from sdlc_agent.domain.qa import TestPlan, TestPlanItem
+from sdlc_agent.domain.qa import TestPlan, TestPlanItem, TestRun
+from sdlc_agent.pipeline.codeflow import CommitResult
 from sdlc_agent.pipeline.roles import RoleContext
 from sdlc_agent.pipeline.state import PipelineState
+from sdlc_agent.pipeline.verify import StubExecutor
 
 #: The artifact each role is responsible for producing.
 ROLE_KINDS: dict[PipelineRole, ArtifactKind] = {
@@ -171,3 +176,67 @@ def artifact_kinds(result: PipelineState) -> set[str]:
     keys because ArtifactKind is a StrEnum and hashes equal to its value.
     """
     return {str(kind) for kind in result["artifacts"]}
+
+
+@dataclass
+class FakeRepoClient:
+    """RepoClient that records calls and materializes a workspace on clone.
+
+    Never touches a network or a real git binary: what the graph needs to know
+    is which operations were requested with which arguments, not whether git
+    works. The real subprocess client has its own integration tests.
+    """
+
+    fail_with: Exception | None = None
+    clones: list[tuple[str, Path, str]] = field(default_factory=list)
+    applies: list[tuple[Path, tuple[FileEdit, ...], str, str]] = field(default_factory=list)
+    pushes: list[tuple[Path, str]] = field(default_factory=list)
+
+    def clone(self, url: str, destination: Path, *, token: str = "") -> None:
+        self.clones.append((url, destination, token))
+        if self.fail_with is not None:
+            raise self.fail_with
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / ".git").mkdir()
+        (destination / "src").mkdir()
+        (destination / "src" / "app.py").write_text("print('hi')\n", encoding="utf-8")
+
+    def apply_and_commit(
+        self,
+        root: Path,
+        edits: Sequence[FileEdit],
+        branch: str,
+        message: str,
+        *,
+        token: str = "",
+    ) -> CommitResult:
+        self.applies.append((root, tuple(edits), branch, message))
+        for edit in edits:
+            target = root / edit.path
+            if edit.op == "delete":
+                target.unlink(missing_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(edit.content, encoding="utf-8")
+        return CommitResult(
+            sha="f" * 40,
+            files_changed=tuple(sorted(edit.path for edit in edits)),
+        )
+
+    def push(self, root: Path, branch: str, *, token: str = "") -> None:
+        self.pushes.append((root, branch))
+
+
+@dataclass
+class RecordingExecutor:
+    """TestExecutor that records the context it was handed, then stubs the run.
+
+    Pins what the verify node passes through - most importantly the workspace,
+    which the sandbox executor refuses to run without.
+    """
+
+    seen: list[str] = field(default_factory=list)
+
+    def execute(self, plan: TestPlan, context: RoleContext) -> TestRun:
+        self.seen.append(context.repo_root)
+        return StubExecutor().execute(plan, context)

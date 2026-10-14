@@ -19,6 +19,7 @@ Two rules shape the layout:
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -28,6 +29,11 @@ from sdlc_agent.config import PlatformConfig
 from sdlc_agent.domain import ArtifactKind, PipelineRole, ReviewDecision, Verdict
 from sdlc_agent.domain.product import Requirement
 from sdlc_agent.domain.qa import QualityGate
+from sdlc_agent.pipeline.codeflow import (
+    CodeIntegrations,
+    make_checkout_node,
+    summarize_file_tree,
+)
 from sdlc_agent.pipeline.roles import ROLE_INPUTS, ROLE_OUTPUTS, Role, RoleContext, RoleError
 from sdlc_agent.pipeline.serde import make_memory_checkpointer
 from sdlc_agent.pipeline.state import AuditEvent, PipelineState, RunStatus, StageName
@@ -58,6 +64,11 @@ ROLE_STAGE: dict[PipelineRole, str] = {
 
 #: How many times one gate may reject before escalating.
 MAX_GATE_REVISIONS = 2
+
+#: Roles that see the workspace's file tree. The PM works from the requirement
+#: alone, and QA plans against the acceptance criteria and the change - the
+#: tree is for the roles that must name real paths in code.
+TREE_ROLES: frozenset[PipelineRole] = frozenset({PipelineRole.ARCHITECT, PipelineRole.DEVELOPER})
 
 
 class GraphConstructionError(RuntimeError):
@@ -113,15 +124,20 @@ def _context_for(role: PipelineRole, state: PipelineState) -> RoleContext:
 
     Only the artifacts that role declares as inputs are included, not the whole
     mapping (section 4.1): a role that can read everything can also be
-    distracted by everything.
+    distracted by everything. The workspace's file tree is computed here, once
+    per role call, so every implementation of a role sees the same bounded
+    view instead of walking the repository itself.
     """
     artifacts = state.get("artifacts", {})
     stage = ROLE_STAGE[role]
+    repo_root = state.get("repo_root", "")
     return RoleContext(
         requirement=state["requirement"],
         upstream={kind: artifacts[kind] for kind in ROLE_INPUTS[role] if kind in artifacts},
         feedback=state.get("feedback", ""),
         attempt=_attempt_for(stage, state),
+        repo_root=repo_root,
+        repo_tree=summarize_file_tree(Path(repo_root)) if repo_root and role in TREE_ROLES else "",
     )
 
 
@@ -339,6 +355,17 @@ def _finalize_node(state: PipelineState) -> dict[str, Any]:
     }
 
 
+def _route_after_checkout(state: PipelineState) -> str:
+    """A failed clone escalates; anything else proceeds to the PM.
+
+    The checkout node also *skips* (synthetic sources) - skipping is a normal,
+    audited outcome, not a failure, and the run carries on artifact-only.
+    """
+    if state.get("status") is RunStatus.ESCALATED:
+        return StageName.ESCALATE.value
+    return StageName.PM.value
+
+
 def _route_after_role(next_stage: str) -> Any:
     """Onward, to the budget gate, or to escalation."""
 
@@ -425,6 +452,7 @@ def build_graph(
     executor: TestExecutor,
     *,
     checkpointer: Any = None,
+    code: CodeIntegrations | None = None,
 ) -> Any:
     """Assemble and compile the pipeline graph.
 
@@ -437,6 +465,10 @@ def build_graph(
         checkpointer: Where state persists across interrupts. Defaults to
             in-memory, which suits tests and single-process runs; a deployed
             service passes the Postgres one so a gate survives a restart.
+        code: The real-code bundle. ``None`` builds the artifact-only topology
+            of the eval harness and the tests that predate code flow; passing
+            it inserts the checkout node ahead of the PM and (in later nodes)
+            grounds the run in a real repository workspace.
 
     Raises:
         GraphConstructionError: If a role implementation is missing.
@@ -456,7 +488,16 @@ def build_graph(
     graph.add_node(StageName.ESCALATE.value, _escalate_node)
     graph.add_node(StageName.FINALIZE.value, _finalize_node)
 
-    graph.add_edge(START, StageName.PM.value)
+    if code is None:
+        graph.add_edge(START, StageName.PM.value)
+    else:
+        graph.add_node(StageName.CHECKOUT.value, make_checkout_node(code, StageName.CHECKOUT.value))
+        graph.add_edge(START, StageName.CHECKOUT.value)
+        graph.add_conditional_edges(
+            StageName.CHECKOUT.value,
+            _route_after_checkout,
+            [StageName.PM.value, StageName.ESCALATE.value],
+        )
 
     role_next = {
         StageName.PM.value: StageName.PRD_REVIEW.value,
@@ -521,6 +562,7 @@ def initial_state(requirement: Requirement) -> dict[str, Any]:
         "qa_attempts": 0,
         "gate_revisions": {},
         "feedback": "",
+        "repo_root": "",
         "status": RunStatus.IN_PROGRESS,
         "blocked_stage": "",
         "budget_override_usd": 0.0,

@@ -141,7 +141,15 @@ def make_verify_node(executor: TestExecutor, stage: str) -> Any:
                 "audit": _audit(stage, "no_test_plan", "QA produced no plan to execute"),
             }
 
-        run = executor.execute(plan, RoleContext(requirement=state["requirement"]))
+        run = executor.execute(
+            plan,
+            RoleContext(
+                requirement=state["requirement"],
+                # The workspace the checkout node cloned, so the executor runs
+                # the suite against real code instead of reporting NOT_RUN.
+                repo_root=state.get("repo_root", ""),
+            ),
+        )
         gate = QualityGate.from_evidence(run, uncovered_criteria=plan.uncovered_criteria)
 
         return {
