@@ -1,0 +1,291 @@
+/* Plain CSS: an internal tool with three screens does not carry a UI
+   framework. Dark theme, system font stack, one accent color. */
+
+:root {
+  --bg: #121418;
+  --card: #1c1f26;
+  --line: #2c313c;
+  --text: #e6e9ef;
+  --dim: #8b93a3;
+  --accent: #4f8cff;
+  --ok: #35b57c;
+  --warn: #e0a13c;
+  --danger: #e05c5c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
+  line-height: 1.5;
+}
+
+main {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 4rem;
+}
+
+h1 {
+  font-size: 1.3rem;
+}
+
+h2 {
+  font-size: 1.05rem;
+  margin: 0 0 0.75rem;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.dim {
+  color: var(--dim);
+  font-size: 0.85rem;
+}
+
+.error {
+  color: var(--danger);
+  white-space: pre-wrap;
+}
+
+label {
+  display: block;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+  color: var(--dim);
+}
+
+label.inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+input,
+textarea {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.45rem 0.6rem;
+  font: inherit;
+}
+
+label.inline input {
+  display: inline-block;
+  width: 14rem;
+}
+
+button {
+  font: inherit;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  padding: 0.45rem 1rem;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+button.link {
+  border: none;
+  background: none;
+  color: var(--accent);
+  padding: 0;
+  font-size: 0.9rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+th {
+  text-align: left;
+  color: var(--dim);
+  font-weight: 500;
+  font-size: 0.8rem;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+
+td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+
+tr.row {
+  cursor: pointer;
+}
+
+tr.row:hover td {
+  background: #22262f;
+}
+
+td.title {
+  font-weight: 500;
+}
+
+td.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.badge,
+.waiting {
+  display: inline-block;
+  font-size: 0.78rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+}
+
+.badge.running {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.badge.ok {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.badge.warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.waiting.gate {
+  color: var(--warn);
+}
+
+.waiting.budget {
+  color: var(--danger);
+}
+
+.money {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+}
+
+.bar {
+  width: 10rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  background: var(--accent);
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.artifact {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.75rem;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  max-height: 24rem;
+}
+
+.decision {
+  margin-top: 0.75rem;
+}
+
+.verdicts {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+
+.artifacts {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.audit ol {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.audit li {
+  margin-bottom: 0.4rem;
+  font-size: 0.88rem;
+}
+
+.audit .stage {
+  color: var(--accent);
+  font-family: monospace;
+  margin-right: 0.5rem;
+}
+
+.audit .event {
+  margin-right: 0.5rem;
+}
+
+.audit .detail {
+  color: var(--dim);
+}
+
+.audit .time {
+  margin-left: 0.5rem;
+}
+
+code {
+  font-family: monospace;
+  background: var(--bg);
+  border-radius: 4px;
+  padding: 0.05rem 0.35rem;
+}

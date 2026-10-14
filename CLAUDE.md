@@ -122,4 +122,19 @@ uvicorn sdlc_agent.service.main:app
 4. `run_id` 即 LangGraph thread id，没有第二套映射。未知 thread 的 `get_state` 返回**空快照**而非 `None`（实测），404 判据是 `created_at is None`。
 5. **无凭据拒绝启动**（`require_startup_credentials`）：health 绿但每个 run 都 500 是假绿。进程 env 启动后冻结，启动时校验过、运行中就不可能再缺。
 
+## 前端
+
+React SPA 在 `frontend/`（Vite + TypeScript，无路由库——两个页面手写 hash 路由；无 UI 框架）。线格式类型在 `src/types.ts`，与 `src/sdlc_agent/service/models.py` **手工镜像**——刻意不用代码生成，两边可独立构建部署；渲染直接读字段名，漂移立刻暴露。
+
+```bash
+cd frontend
+npm install
+npm test        # vitest：组件 + API client，全部离线
+npm run build   # tsc --noEmit + vite build -> dist/
+```
+
+1. **改前端必须过前端门禁再提交**：`npm test` 全绿 + `npm run build` 成功（含 tsc strict），与 Python 四门禁同级。
+2. **空的可选字段要省略而不是发空串**：reviewer 留空时 graph 默认 "unspecified"，空串会覆盖成空（前后端两侧都有此规则，两侧测试都钉住）。
+3. 开发模式 `npm run dev`，`/api` 代理到 `localhost:8000`；部署用 `SDLC_STATIC_DIR=frontend/dist` 让服务同源服务 SPA（挂载注册在所有 `/api` 路由之后，API 永远优先）。
+
 
