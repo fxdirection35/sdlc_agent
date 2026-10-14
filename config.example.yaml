@@ -1,0 +1,78 @@
+# SDLC Agent Platform — configuration example
+#
+# Copy to config.yaml and edit. This file is committed, so it holds only the
+# NAME of the environment variable carrying each key, never a key itself.
+# Export the variables in your shell or a .env file (both gitignored):
+#
+#   export ANTHROPIC_API_KEY=sk-ant-...
+#   export DEEPSEEK_API_KEY=sk-...
+#
+# Roles and providers are validated at load: a role pointing at an undefined
+# provider, or a missing role, fails here rather than at the first LLM call.
+
+providers:
+  anthropic:
+    api_key_env: ANTHROPIC_API_KEY
+
+  # Commented out by default. Uncomment to route some roles through DeepSeek,
+  # which costs a fraction of Claude and connects directly from within China.
+  # deepseek:
+  #   api_key_env: DEEPSEEK_API_KEY
+  #
+  # For a self-hosted or proxied OpenAI-compatible gateway, give the entry a
+  # friendly key and set litellm_prefix to what litellm needs for routing:
+  # our-gateway:
+  #   api_key_env: GATEWAY_KEY
+  #   litellm_prefix: openai
+  #   base_url: https://gateway.internal/v1
+
+roles:
+  # Judgment-heavy roles get the strongest model. PRD and design quality
+  # determine everything downstream, and both pass through a human gate, so
+  # the cost is bounded by a person reading it anyway.
+  product_manager:
+    provider: anthropic
+    model: claude-opus-5-5      # $4 / $20 per MTok
+    effort: high
+
+  architect:
+    provider: anthropic
+    model: claude-opus-5-5
+    effort: high
+
+  # Coding responds strongly to effort, so this stays high; Sonnet 5.5 is the
+  # current coding default at half Opus's price.
+  developer:
+    provider: anthropic
+    model: claude-sonnet-5-5    # $2 / $10 per MTok
+    effort: high
+
+  # QA plans from explicit acceptance criteria and then executes, so it needs
+  # less judgment than the roles above. Deliberately NOT haiku: deciding what
+  # to test is the platform's differentiating step, and it is where a weak
+  # model produces a green suite that proves nothing.
+  qa:
+    provider: anthropic
+    model: claude-sonnet-5-5
+    effort: medium
+
+  # `temperature` is omitted everywhere on purpose. Current-generation Claude
+  # models reject any non-default sampling value with a 400; effort is the
+  # lever. Set it only for providers that actually accept it.
+
+budget:
+  # Ceiling for ONE task across all roles and all QA retries. On breach the run
+  # pauses and raises for a human instead of quietly spending on.
+  #
+  # $5 is tight with two Opus roles: a 20k-output-token PRD turn is $0.40 at
+  # Opus 5.5's $20/MTok, before any input tokens or retries. Raise it for
+  # large repositories, or move roles to Sonnet.
+  per_task_usd: 5.0
+  # Warn while there is still something to do about it, not at the ceiling.
+  warn_at_fraction: 0.8
+
+pipeline:
+  # How many times a failed test run returns to the developer before a human
+  # is pulled in. Must be finite: an unbounded fix-and-retest loop is a budget
+  # fire with no exit.
+  max_qa_retries: 3

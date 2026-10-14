@@ -18,6 +18,7 @@ import json
 from sdlc_agent.domain.base import (
     Artifact,
     ArtifactKind,
+    PipelineRole,
     ReviewDecision,
     Verdict,
     reject_blank,
@@ -103,6 +104,7 @@ __all__ = [
     "ArtifactKind",
     "CodeChange",
     "Design",
+    "PipelineRole",
     "ProductRequirements",
     "QualityGate",
     "Requirement",

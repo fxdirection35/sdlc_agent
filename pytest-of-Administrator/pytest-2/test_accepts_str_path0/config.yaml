@@ -1,0 +1,9 @@
+
+providers:
+  anthropic:
+    api_key_env: ANTHROPIC_API_KEY
+roles:
+  product_manager: {provider: anthropic, model: claude-opus-5}
+  architect:       {provider: anthropic, model: claude-opus-5}
+  developer:       {provider: anthropic, model: claude-sonnet-5-5}
+  qa:              {provider: anthropic, model: claude-haiku-5-5}

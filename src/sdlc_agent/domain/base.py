@@ -35,7 +35,7 @@ class ArtifactKind(StrEnum):
     """The artifact types that flow between pipeline roles.
 
     The order matches the pipeline: each kind is produced by one role and
-    consumed by the next. Keep this list in sync with ``PipelineStage``.
+    consumed by the next. Keep this list in sync with :class:`PipelineRole`.
     """
 
     REQUIREMENT = "requirement"
@@ -46,6 +46,22 @@ class ArtifactKind(StrEnum):
     TEST_PLAN = "test_plan"
     TEST_RUN = "test_run"
     QUALITY_GATE = "quality_gate"
+
+
+class PipelineRole(StrEnum):
+    """The four role agents that make up the pipeline.
+
+    Deliberately exactly four. PM -> architect -> developer -> QA is four
+    handoffs, which is the ceiling HARNESS_SPEC.md section 2.1 sets because
+    Microsoft's data shows more than that almost always fails. Adding a role
+    here is therefore a design decision that needs evidence behind it, not a
+    refactor; new capability belongs in an existing role's tools.
+    """
+
+    PRODUCT_MANAGER = "product_manager"
+    ARCHITECT = "architect"
+    DEVELOPER = "developer"
+    QA = "qa"
 
 
 class Artifact(BaseModel):
