@@ -59,13 +59,14 @@ def make_roles(**role_kwargs: Any) -> dict[PipelineRole, Role]:
     }
 
 
-def make_client(**role_kwargs: Any) -> TestClient:
+def make_client(*, static_dir: Any = None, **role_kwargs: Any) -> TestClient:
     saver = make_memory_checkpointer()
     app = create_app(
         roles=make_roles(**role_kwargs),
         config=make_config(),
         executor=StubExecutor(),
         checkpointer_factory=lambda: nullcontext(saver),
+        static_dir=static_dir,
     )
     return TestClient(app)
 
@@ -357,6 +358,80 @@ class TestBudgetGate:
 
         assert review.status_code == 409
         assert view.status_code == 409
+
+
+# -- the run list -----------------------------------------------------------------
+
+
+class TestListRuns:
+    def test_lists_every_run_with_its_pending_gate(self) -> None:
+        client = make_client()
+        first = create_run(client).json()
+        second = create_run(client, title="A second ask").json()
+
+        response = client.get("/api/runs")
+
+        assert response.status_code == 200
+        by_id = {item["run_id"]: item for item in response.json()}
+        assert set(by_id) == {first["run_id"], second["run_id"]}
+        row = by_id[first["run_id"]]
+        assert row["title"] == "Add CSV export"
+        assert row["requester"] == "alice"
+        assert row["status"] == "in_progress"
+        assert row["pending_kind"] == "gate"
+        assert row["pending_gate"] == "prd_review"
+        assert row["budget_usd"] == 5.0
+        assert row["updated_at"]  # the sort key is present
+
+    def test_the_list_follows_a_run_forward(self) -> None:
+        client = make_client()
+        run_id = create_run(client).json()["run_id"]
+
+        approve(client, run_id)
+        row = {item["run_id"]: item for item in client.get("/api/runs").json()}[run_id]
+
+        assert row["pending_gate"] == "design_review"
+
+    def test_the_newest_run_is_first(self) -> None:
+        client = make_client()
+        create_run(client, title="older")
+        create_run(client, title="newer")
+
+        response = client.get("/api/runs")
+
+        titles = [item["title"] for item in response.json()]
+        assert titles.index("newer") < titles.index("older")
+
+    def test_a_service_with_no_runs_lists_nothing(self) -> None:
+        client = make_client()
+
+        assert client.get("/api/runs").json() == []
+
+
+# -- the SPA mount ---------------------------------------------------------------
+
+
+class TestStaticDir:
+    def test_the_built_spa_is_served_at_the_root(self, tmp_path: Any) -> None:
+        (tmp_path / "index.html").write_text(
+            "<html><body>spa-marker</body></html>", encoding="utf-8"
+        )
+        client = make_client(static_dir=tmp_path)
+
+        page = client.get("/")
+        health = client.get("/api/health")
+        missing = client.get("/no-such-asset.js")
+
+        assert page.status_code == 200
+        assert "spa-marker" in page.text
+        # API routes registered before the mount keep winning.
+        assert health.status_code == 200
+        assert missing.status_code == 404
+
+    def test_without_a_static_dir_the_root_is_not_a_page(self) -> None:
+        client = make_client()
+
+        assert client.get("/").status_code == 404
 
 
 # -- 404 and health ---------------------------------------------------------------

@@ -137,6 +137,29 @@ class BudgetDecisionRequest(BaseModel):
     grant_usd: float = Field(default=0.0, ge=0)
 
 
+class RunSummary(BaseModel):
+    """One row of the run list: everything a reviewer scanning for work needs.
+
+    Leaner than :class:`RunResponse` on purpose - no audit trail, no artifact
+    ids - because the list is polled and rendered often; the detail view is one
+    click away.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    status: str
+    #: "" when the run waits on nothing (running or terminal).
+    pending_kind: str
+    pending_gate: str
+    spent_usd: float
+    budget_usd: float
+    title: str
+    requester: str
+    #: ISO timestamp of the run's latest checkpoint - the list's sort key.
+    updated_at: str
+
+
 class ReviewView(BaseModel):
     """A gate decision in context: the payload plus the artifact under review."""
 
@@ -158,4 +181,5 @@ __all__ = [
     "ReviewView",
     "RunCreateRequest",
     "RunResponse",
+    "RunSummary",
 ]

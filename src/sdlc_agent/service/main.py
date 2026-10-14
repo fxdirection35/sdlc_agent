@@ -32,6 +32,7 @@ from sdlc_agent.pipeline.postgres import postgres_checkpointer
 from sdlc_agent.service.app import (
     CONFIG_PATH_ENV,
     DATABASE_URL_ENV,
+    STATIC_DIR_ENV,
     CheckpointerFactory,
     create_app,
 )
@@ -110,12 +111,32 @@ def create_app_from_env() -> FastAPI:
         )
     else:
         logger.info("checkpoint storage is %s", storage)
+    static_dir = static_dir_from_env()
     return create_app(
         roles={role: LitellmRole(role, config) for role in PipelineRole},
         config=config,
         executor=executor_from_env(),
         checkpointer_factory=factory,
+        static_dir=static_dir,
     )
+
+
+def static_dir_from_env() -> Path | None:
+    """The built SPA directory, or None when unset or not yet built.
+
+    A build that has not happened yet (no dist) is a warning, not a failure:
+    the service still serves the API, and the SPA can be built later. A
+    configured path that exists but is not a directory is a real mistake and
+    fails startup instead of serving from a file path by accident.
+    """
+    raw = os.environ.get(STATIC_DIR_ENV, "")
+    if not raw:
+        return None
+    path = Path(raw)
+    if path.is_dir():
+        return path
+    logger.warning("%s=%s is not a built SPA directory; serving API only", STATIC_DIR_ENV, raw)
+    return None
 
 
 #: The uvicorn target: ``uvicorn sdlc_agent.service.main:app``. Built at import
@@ -131,4 +152,5 @@ __all__ = [
     "checkpointer_from_env",
     "create_app_from_env",
     "require_startup_credentials",
+    "static_dir_from_env",
 ]

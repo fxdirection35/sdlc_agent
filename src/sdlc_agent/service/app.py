@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -26,6 +27,7 @@ from fastapi import FastAPI, HTTPException
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.types import Command
 from starlette.responses import JSONResponse
+from starlette.staticfiles import StaticFiles
 
 import sdlc_agent
 from sdlc_agent.config import PlatformConfig
@@ -52,6 +54,7 @@ from sdlc_agent.service.models import (
     ReviewView,
     RunCreateRequest,
     RunResponse,
+    RunSummary,
 )
 
 #: What a factory produces: a context manager owning one checkpointer. The
@@ -61,10 +64,17 @@ CheckpointerFactory = Callable[[], AbstractContextManager[BaseCheckpointSaver[An
 
 #: Environment variables the deployment assembly reads (service.main). They
 #: live here - the import-safe module - rather than there, because main builds
-#: its app at import time and there is no config-file entry for either: both
-#: are credentials (HARNESS_SPEC.md 4.1).
+#: its app at import time and there is no config-file entry for them: the
+#: first two are credentials (HARNESS_SPEC.md 4.1), the third is a path that
+#: exists only in a built deployment.
 DATABASE_URL_ENV = "SDLC_DATABASE_URL"
 CONFIG_PATH_ENV = "SDLC_CONFIG_PATH"
+STATIC_DIR_ENV = "SDLC_STATIC_DIR"
+
+#: Bound on the run-list scan. Generous for an internal tool; exists so a
+#: checkpoint store that grows without cleanup cannot turn the list endpoint
+#: into an unbounded scan.
+_LIST_LIMIT = 500
 
 
 def _ceiling(values: Mapping[str, Any], config: PlatformConfig) -> float:
@@ -193,6 +203,51 @@ class _Runs:
             snapshot = graph.get_state(thread)
         return _run_response(run_id, snapshot.values, self._config, snapshot)
 
+    def list_runs(self) -> list[RunSummary]:
+        """Every run in the checkpoint store, newest first.
+
+        ``saver.list(None)`` enumerates checkpoint tuples across all threads
+        (both in-memory and Postgres savers support it); the tuples are used
+        only for their thread ids, because a full projection needs the same
+        deserializing ``get_state`` path the single-run endpoint uses - going
+        through it keeps list and detail from disagreeing about a run. A
+        thread whose state is empty is skipped: it is either mid-creation (the
+        first checkpoint not yet visible) or corrupt, and listing a ghost run
+        that 404s on click would be a lie with extra steps.
+        """
+        summaries: list[RunSummary] = []
+        with self._checkpointer_factory() as saver:
+            graph = self._graph_with(saver)
+            thread_ids = {
+                str(item.config["configurable"]["thread_id"])
+                for item in saver.list(None, limit=_LIST_LIMIT)
+            }
+            for run_id in thread_ids:
+                snapshot = graph.get_state({"configurable": {"thread_id": run_id}})
+                if snapshot.created_at is None or not snapshot.values:
+                    continue
+                requirement = snapshot.values.get("requirement")
+                if requirement is None:
+                    continue
+                pending = _pending_from(snapshot)
+                summaries.append(
+                    RunSummary(
+                        run_id=run_id,
+                        status=str(snapshot.values.get("status", RunStatus.IN_PROGRESS)),
+                        pending_kind=pending.kind if pending else "",
+                        pending_gate=pending.gate if pending else "",
+                        spent_usd=float(snapshot.values.get("spent_usd", 0.0)),
+                        budget_usd=_ceiling(snapshot.values, self._config),
+                        title=requirement.title,
+                        requester=requirement.requester,
+                        updated_at=str(snapshot.created_at or ""),
+                    )
+                )
+        # ISO timestamps sort lexicographically; created_at is either "" (which
+        # sorts last) or an ISO string from the checkpoint store.
+        summaries.sort(key=lambda item: item.updated_at, reverse=True)
+        return summaries
+
     def load(self, run_id: str) -> tuple[Any, Any]:
         """Snapshot a run; raises 404 for an id this service never created.
 
@@ -238,12 +293,14 @@ def create_app(
     config: PlatformConfig,
     executor: TestExecutor,
     checkpointer_factory: CheckpointerFactory,
+    static_dir: Path | None = None,
 ) -> FastAPI:
     """Assemble the service.
 
     Everything injectable is a parameter: the roles (scripted in tests,
-    litellm in deployment), the executor (sandbox extra in deployment), and
-    the checkpointer factory (in-memory in tests, Postgres in deployment).
+    litellm in deployment), the executor (sandbox extra in deployment), the
+    checkpointer factory (in-memory in tests, Postgres in deployment), and
+    the built SPA's directory (None in tests and API-only deployments).
     ``create_app_from_env`` in :mod:`sdlc_agent.service.main` is the deployed
     assembly; this function is the tested one.
     """
@@ -253,6 +310,10 @@ def create_app(
     @app.get("/api/health")
     def health() -> JSONResponse:
         return JSONResponse({"status": "ok", "version": sdlc_agent.__version__})
+
+    @app.get("/api/runs")
+    def list_runs() -> list[RunSummary]:
+        return runs.list_runs()
 
     @app.post("/api/runs", status_code=201)
     def create_run(request: RunCreateRequest) -> RunResponse:
@@ -336,12 +397,19 @@ def create_app(
             )
         return runs.resume(run_id, {"grant_usd": request.grant_usd})
 
+    # The SPA mount goes LAST so every /api route above wins: Starlette matches
+    # routes in registration order, and a mount on "/" would otherwise swallow
+    # paths the API has opinions about. html=True serves index.html at "/".
+    if static_dir is not None:
+        app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="spa")
+
     return app
 
 
 __all__ = [
     "CONFIG_PATH_ENV",
     "DATABASE_URL_ENV",
+    "STATIC_DIR_ENV",
     "CheckpointerFactory",
     "create_app",
 ]
