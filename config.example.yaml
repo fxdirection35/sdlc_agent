@@ -51,6 +51,14 @@ roles:
   developer:
     provider: deepseek
     model: deepseek-v4-flash
+    # Full-content file edits make the developer by far the most output-heavy
+    # role - and on v4-flash the reasoning shares this same pool (measured:
+    # a golden task's chain of thought alone reached a 16384 cap and the call
+    # returned with content empty). 4096 cannot hold a real implementation;
+    # 16384 cannot reliably hold thinking + one. 32768 gives multi-file
+    # changes room behind the reasoning; raise with care, this caps ONE
+    # call's cost.
+    max_output_tokens: 32768
 
   qa:
     provider: deepseek

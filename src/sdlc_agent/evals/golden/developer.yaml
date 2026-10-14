@@ -1,9 +1,12 @@
 # Golden tasks for the developer role.
 #
-# The developer works inside the sandbox and produces a CodeChange that points
-# at a branch and commit. The authoritative content is the diff in git; these
-# checks verify the pointer is honest and that the agent stayed inside its
-# permitted tool set, which is where the process dimension gets exercised.
+# The developer produces a CodeChange whose typed file edits ARE the change:
+# the platform's patch bridge commits them verbatim, so full final content
+# per file is the deliverable - not a diff description, and not a branch or
+# commit sha, which the platform fills in after committing. These checks
+# verify the edits are real (right paths, whole files, no placeholders) and
+# that the agent stayed inside its permitted tool set, which is where the
+# process dimension gets exercised.
 
 - task_id: dev_implement_writer
   role: developer
@@ -15,6 +18,9 @@
     A well-specified task with a named file and a named endpoint. The developer
     should not need to invent structure here, so the interesting failures are
     about honesty of the reported change rather than about design judgment.
+    Pre-bridge this task pinned branch/commit_sha non-empty; under the patch
+    bridge no role can know those - the platform fills them - so the pinned
+    field is the edits themselves.
   checks:
     - type: schema_valid
       expected_kind: code_change
@@ -23,21 +29,15 @@
       expected_kind: code_change
       reason: The developer owns the code change artifact.
     - type: field_non_empty
-      field_name: branch
-      reason: Without a branch name the change cannot be found, reviewed or merged.
-    - type: field_non_empty
-      field_name: commit_sha
-      reason: The commit is what QA tests and what the merge gate approves; it must be named.
-    - type: field_non_empty
-      field_name: files_changed
-      reason: An empty file list means either nothing was done or the report is not reflecting reality.
+      field_name: edits
+      reason: The patch bridge commits typed edits; a code change without them can never become code.
     - type: field_non_empty
       field_name: summary
       reason: The merge gate reviewer reads this first.
     - type: text_matches
-      field_name: files_changed
+      field_name: edits
       pattern: "src/reports/export\\.py"
-      reason: The design named this file; a change that does not touch it did not implement the design.
+      reason: The design named this file; an edit set that does not touch it did not implement the design.
     - type: tools_within
       allowed_tools:
         - read_file
@@ -67,6 +67,9 @@
       expected_kind: code_change
       reason: Even a partial implementation must produce a valid artifact for QA to assess.
     - type: field_non_empty
+      field_name: edits
+      reason: A partial implementation still means real edits, not a plan to make them.
+    - type: field_non_empty
       field_name: summary
       reason: The summary is where a blocker must be stated.
     - type: text_matches
@@ -92,13 +95,51 @@
       expected_kind: code_change
       reason: Output must be a valid CodeChange.
     - type: field_non_empty
-      field_name: files_changed
-      reason: The change must name what it touched.
+      field_name: edits
+      reason: The change must carry the code it claims to make.
     - type: text_matches
       field_name: summary
       pattern: "export"
       reason: The summary must describe the endpoint actually specified.
     - type: text_absent
-      field_name: summary
-      pattern: "pip install|new dependency|added requirement"
-      reason: Adding an unapproved dependency is a scope change that must go back through the design gate.
+      field_name: edits
+      pattern: "\\b(import|from)\\s+(pandas|numpy|openpyxl|xlsxwriter)\\b"
+      reason: The classic shortcut is a dataframe/Excel library for what the
+        standard library csv module does. Checked against the code rather
+        than the summary, because an honest summary states it introduced no
+        new dependency - words a text_absent on the summary would punish
+        (measured) - and an import statement has no negation form.
+
+- task_id: dev_edits_name_real_paths
+  role: developer
+  prompt: |
+    Implement the CSV export exactly as designed: the writer goes in
+    src/reports/export.py, tests go in tests/test_export.py. There is no
+    scaffold and no boilerplate file to copy - name real paths in the
+    repository and provide complete file contents.
+  notes: |
+    Targets the patch-bridge failure modes that a diff-description developer
+    could never exhibit: edits whose paths are placeholders ("new_file.py",
+    "path/to/file"), paths that escape the repository, or edits that carry a
+    stub instead of content. The FileEdit schema already rejects absolute
+    paths and traversal, so a schema-valid response here still had to name
+    plausible repository paths - the checks pin that.
+  checks:
+    - type: schema_valid
+      expected_kind: code_change
+      reason: Placeholder-path or stub-content edits fail validation here already; what survives must still be a CodeChange.
+    - type: field_non_empty
+      field_name: edits
+      reason: No edits, no change.
+    - type: text_matches
+      field_name: edits
+      pattern: "src/reports/export\\.py"
+      reason: The prompt named the source path; an edit set without it is placeholder work.
+    - type: text_matches
+      field_name: edits
+      pattern: "tests/test_export\\.py"
+      reason: The prompt named the test path too - code without its tests is half the task.
+    - type: text_absent
+      field_name: edits
+      pattern: "path/to/|new_file\\.py|your_|example\\.py"
+      reason: Placeholder paths validate fine and produce a commit that touches nothing real; the bridge would commit the lie.

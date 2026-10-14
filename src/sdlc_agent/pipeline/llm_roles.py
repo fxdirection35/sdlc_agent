@@ -79,8 +79,12 @@ _ROLE_BRIEF: dict[PipelineRole, str] = {
         "naming the components, api changes and risks."
     ),
     PipelineRole.DEVELOPER: (
-        "You are a software developer. Implement the task from the design and "
-        "report the change honestly: what changed, where, and any deviations."
+        "You are a software developer. Implement the task from the design as "
+        "complete file edits: every file you create or change carries its full "
+        "final content, and nothing else becomes code. The platform commits "
+        "your edits, pushes the branch and fills in the branch name and commit "
+        "sha - never invent those. Report the change honestly in the summary: "
+        "what changed, where, and any deviations."
     ),
     PipelineRole.QA: (
         "You are a QA engineer. Write a test plan that proves every acceptance "

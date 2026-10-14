@@ -214,13 +214,13 @@ class TestSanityOfTheLoadedSet:
     def test_the_golden_set_still_has_the_expected_shape(self) -> None:
         """Fails when tasks are added or renamed without revisiting the
         expectations above - especially KNOWN_EXCLUDED."""
-        assert len(ALL_TASKS) == 13
+        assert len(ALL_TASKS) == 14
         per_role: dict[str, int] = {}
         for task in ALL_TASKS:
             per_role[task.role.value] = per_role.get(task.role.value, 0) + 1
         assert per_role == {
             "product_manager": 3,
             "architect": 3,
-            "developer": 3,
+            "developer": 4,
             "qa": 4,
         }
