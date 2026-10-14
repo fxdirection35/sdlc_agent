@@ -16,6 +16,10 @@ env/
 
 # Test / coverage
 .pytest_cache/
+.pytest-tmp/
+# pytest's basetemp when the system temp dir is not writable (see
+# tests/conftest.py); listed so it can never be committed by accident again.
+pytest-of-*/
 .coverage
 htmlcov/
 .tox/
