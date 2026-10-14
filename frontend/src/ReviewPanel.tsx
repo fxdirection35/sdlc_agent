@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { getReview, postReview } from "./api";
-import type { PendingDecision, ReviewDecisionRequest, RunResponse } from "./types";
+import type {
+  PendingDecision,
+  ReviewDecisionRequest,
+  ReviewView,
+  RunResponse,
+} from "./types";
 
 const VERDICT_LABELS: Record<string, string> = {
   approved: "通过",
@@ -22,7 +27,7 @@ export function ReviewPanel({
   pending: PendingDecision;
   onDecided: (run: RunResponse) => void;
 }) {
-  const [artifactJson, setArtifactJson] = useState("");
+  const [view, setView] = useState<ReviewView | null>(null);
   const [reviewer, setReviewer] = useState("");
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
@@ -30,11 +35,23 @@ export function ReviewPanel({
 
   useEffect(() => {
     getReview(runId)
-      .then((view) => setArtifactJson(JSON.stringify(view.artifact, null, 2)))
+      .then(setView)
       .catch((cause: unknown) =>
         setError(cause instanceof Error ? cause.message : String(cause)),
       );
   }, [runId]);
+
+  const artifactJson = view ? JSON.stringify(view.artifact, null, 2) : "";
+  // The merge gate reviews code: when deliver has pushed a branch and opened
+  // the PR, the artifact carries the URL. The diff worth approving lives
+  // there, not in the JSON dump - make it one click away. Empty until
+  // deliver has run, so its absence must render nothing.
+  const prUrl =
+    view?.artifact_kind === "code_change" &&
+    typeof view.artifact.pr_url === "string" &&
+    view.artifact.pr_url
+      ? view.artifact.pr_url
+      : null;
 
   async function decide(verdict: string) {
     setBusy(true);
@@ -56,6 +73,14 @@ export function ReviewPanel({
   return (
     <div className="card review">
       <h2>{pending.prompt}</h2>
+      {prUrl && (
+        <p className="pr-link">
+          变更已推送为拉取请求：
+          <a href={prUrl} target="_blank" rel="noreferrer">
+            {prUrl}
+          </a>
+        </p>
+      )}
       <pre className="artifact">{artifactJson || "加载中…"}</pre>
       <div className="decision">
         <label className="inline">

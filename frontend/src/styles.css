@@ -240,6 +240,11 @@ td.num {
   max-height: 24rem;
 }
 
+.pr-link {
+  margin: 0 0 0.6rem;
+  word-break: break-all;
+}
+
 .decision {
   margin-top: 0.75rem;
 }

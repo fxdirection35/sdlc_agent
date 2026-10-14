@@ -84,4 +84,42 @@ describe("ReviewPanel", () => {
     // The panel is still up: the buttons remain clickable for a corrected try.
     expect(screen.getByRole("button", { name: "通过" })).toBeTruthy();
   });
+
+  it("links the pull request when the merge gate reviews a delivered change", async () => {
+    const url = "https://github.com/example/reports/pull/7";
+    vi.mocked(getReview).mockResolvedValue({
+      pending: PENDING,
+      artifact_kind: "code_change",
+      artifact: { kind: "code_change", branch: "sdlc-agent/run-1", pr_url: url },
+    });
+    // Scoped to this render: the beforeEach panel (a prd, no link) is still
+    // mounted and shares the screen.
+    const { container } = render(
+      <ReviewPanel runId="run-1" pending={PENDING} onDecided={decided} />,
+    );
+
+    await waitFor(() => expect(container.querySelector("a")).toBeTruthy());
+    const link = container.querySelector("a")!;
+    expect(link.getAttribute("href")).toBe(url);
+    expect(link.getAttribute("target")).toBe("_blank");
+  });
+
+  it("renders no link before deliver has opened a pull request", async () => {
+    vi.mocked(getReview).mockResolvedValue({
+      pending: PENDING,
+      artifact_kind: "code_change",
+      artifact: { kind: "code_change", branch: "", pr_url: "" },
+    });
+    const { container } = render(
+      <ReviewPanel runId="run-1" pending={PENDING} onDecided={decided} />,
+    );
+
+    // Wait for the artifact to load before asserting the link's absence.
+    await waitFor(() =>
+      expect(container.querySelector("pre.artifact")?.textContent).toContain(
+        "code_change",
+      ),
+    );
+    expect(container.querySelector("a")).toBeNull();
+  });
 });
