@@ -7,5 +7,18 @@ the seam and tests inject fakes - never the network.
 """
 
 from sdlc_agent.integrations.git_subprocess import GitCommandError, SubprocessGit
+from sdlc_agent.integrations.github_rest import (
+    GitHubApiError,
+    GithubPullRequests,
+    UnsupportedRemoteError,
+    repo_slug_from_remote,
+)
 
-__all__ = ["GitCommandError", "SubprocessGit"]
+__all__ = [
+    "GitCommandError",
+    "GitHubApiError",
+    "GithubPullRequests",
+    "SubprocessGit",
+    "UnsupportedRemoteError",
+    "repo_slug_from_remote",
+]
