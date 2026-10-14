@@ -74,7 +74,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 .venv/Scripts/python -m pytest tests/test_llm_golden.py --record-mode=all
 ```
 
-6. **并非所有 golden task 都能由角色 agent 跑**：`qa_reports_not_run_honestly` 期望 `test_run`，那是测试执行阶段（executor）的产物，不是 QA 角色的。`exclusion_reason()` 会给出原因，`tests/test_role_runner.py` 锁定当前唯一被排除的就是它——sandbox executor 落地后这个断言要随之退役。
+6. **并非所有 golden task 都能由角色 agent 跑**：`qa_reports_not_run_honestly` 期望 `test_run`，那是测试执行阶段（executor）的产物，不是 QA 角色的。`exclusion_reason()` 会给出原因，`tests/test_role_runner.py` 锁定当前唯一被排除的就是它。该任务现在由 sandbox executor 测试承接（`tests/test_sandbox_executor.py::TestGoldenTaskAgainstExecutor`）——角色评估里的排除依然正确：没有任何角色能产出 `TestRun`。
 
 ```bash
 .venv/Scripts/python -c "from sdlc_agent.evals import load_all_tasks, summarize_coverage; import json; print(json.dumps(summarize_coverage(load_all_tasks()), indent=1))"

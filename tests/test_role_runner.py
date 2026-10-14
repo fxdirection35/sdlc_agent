@@ -34,8 +34,9 @@ from sdlc_agent.pipeline.roles import (
 ALL_TASKS: tuple[GoldenTask, ...] = tuple(load_all_tasks().values())
 
 #: The one task today whose expected kind no role produces. It targets the
-#: test-execution stage (a TestRun), whose real implementation arrives with
-#: the sandbox. When that lands, this expectation is retired deliberately.
+#: test-execution stage (a TestRun); the sandbox executor now exists and the
+#: task is evaluated against it in tests/test_sandbox_executor.py. The
+#: exclusion from ROLE evals stays correct: no role produces a TestRun.
 KNOWN_EXCLUDED = "qa_reports_not_run_honestly"
 
 
