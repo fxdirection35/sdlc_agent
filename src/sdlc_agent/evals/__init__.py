@@ -17,6 +17,14 @@ from typing import Any
 
 import yaml
 
+from sdlc_agent.evals.role_runner import (
+    context_for_task,
+    exclusion_reason,
+    expected_kinds,
+    role_addressable_tasks,
+    run_golden_task,
+    run_role_eval_set,
+)
 from sdlc_agent.evals.runner import (
     AgentRun,
     CheckResult,
@@ -186,9 +194,15 @@ __all__ = [
     "TextAbsentCheck",
     "TextMatchesCheck",
     "ToolsWithinCheck",
+    "context_for_task",
+    "exclusion_reason",
+    "expected_kinds",
     "load_all_tasks",
     "load_tasks",
+    "role_addressable_tasks",
     "run_eval_set",
+    "run_golden_task",
+    "run_role_eval_set",
     "run_task",
     "summarize_coverage",
     "tasks_for_role",

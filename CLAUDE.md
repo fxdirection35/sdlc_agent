@@ -67,6 +67,14 @@ python -m venv .venv
 2. **只用确定性检查**：schema 合法性、artifact kind、字段非空、正则命中/不命中、token 上限、工具集白名单。LLM-as-judge 只在确定性检查无法表达需求时才加。
 3. **评估集为空不算通过**：`EvalReport.is_green` 在 0 个任务时返回 `False`。"没跑所以没失败"和 QA 领域模型拒绝的假绿是同一类错误。
 4. 新增检查类型时同步更新 `CHECK_TYPES`，否则加载器报错信息会不准。
+5. **真实模型评测走录制/回放**（`tests/test_llm_golden.py`）：vcrpy 录一次 HTTP，之后离线回放、不花钱。有 cassette 时回放（自动注入哑 key，不会发出去）；无 cassette 且设了 `ANTHROPIC_API_KEY` 时录制（**真实扣费**，12 个任务各一次调用）；两者都没有则跳过——跳过是诚实的。改了 prompt、golden task 或模型配置后重新录制：
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+.venv/Scripts/python -m pytest tests/test_llm_golden.py --record-mode=all
+```
+
+6. **并非所有 golden task 都能由角色 agent 跑**：`qa_reports_not_run_honestly` 期望 `test_run`，那是测试执行阶段（executor）的产物，不是 QA 角色的。`exclusion_reason()` 会给出原因，`tests/test_role_runner.py` 锁定当前唯一被排除的就是它——sandbox executor 落地后这个断言要随之退役。
 
 ```bash
 .venv/Scripts/python -c "from sdlc_agent.evals import load_all_tasks, summarize_coverage; import json; print(json.dumps(summarize_coverage(load_all_tasks()), indent=1))"
