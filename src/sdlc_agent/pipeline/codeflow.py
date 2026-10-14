@@ -1,9 +1,11 @@
 """Code-flow helpers: bridging the pipeline's artifacts to a real repository.
 
-This module grows into the checkout/apply/deliver nodes; it starts with the
-one pure function they all need - rendering a bounded view of the workspace
-for prompts. Bounded matters twice over: a whole-repo listing would blow the
-context window, and an unbounded walk could hang on a pathological tree.
+This module grows into the checkout/apply/deliver nodes. It currently holds
+the repo-context primitives: the bounded tree renderer for prompts, and the
+:class:`RepoClient` protocol the deterministic nodes will drive. Real
+implementations (subprocess git, GitHub REST) live in
+:mod:`sdlc_agent.integrations`; tests use fakes against this protocol, the
+same seam :class:`~sdlc_agent.pipeline.verify.TestExecutor` established.
 
 Everything here is deterministic on purpose (HARNESS_SPEC.md section 5.2):
 same tree in, same text out, so prompt diffs stay reviewable.
@@ -11,7 +13,12 @@ same tree in, same text out, so prompt diffs stay reviewable.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
+
+from sdlc_agent.domain.engineering import FileEdit
 
 #: Directories that are never interesting to a role reading a repository:
 #: build output, dependency trees, caches. Skipping them keeps the summary
@@ -119,4 +126,53 @@ def summarize_file_tree(
     return "\n".join(lines)
 
 
-__all__ = ["SKIP_DIRS", "summarize_file_tree"]
+#: Marker tag the clone step leaves in the workspace, pointing at the commit
+#: the run started from. The apply step diffs against it, so a revision loop
+#: keeps reporting the full change the PR will carry, not just its own delta.
+BASE_TAG = "sdlc-agent/base"
+
+
+@dataclass(frozen=True, slots=True)
+class CommitResult:
+    """What one successful apply recorded in the workspace.
+
+    Attributes:
+        sha: Full HEAD sha after the commit.
+        files_changed: Paths that differ between the clone base and HEAD -
+            everything this run's applies touched, across revision loops.
+    """
+
+    sha: str
+    files_changed: tuple[str, ...]
+
+
+class RepoClient(Protocol):
+    """The git operations the deterministic nodes need, as one seam.
+
+    Implementations must keep credentials out of argv and out of on-disk git
+    configuration; the subprocess implementation documents how (see
+    :mod:`sdlc_agent.integrations.git_subprocess`).
+    """
+
+    def clone(self, url: str, destination: Path, *, token: str = "") -> None:
+        """Clone ``url`` into ``destination`` (created), tagging the base."""
+        ...
+
+    def apply_and_commit(
+        self,
+        root: Path,
+        edits: Sequence[FileEdit],
+        branch: str,
+        message: str,
+        *,
+        token: str = "",
+    ) -> CommitResult:
+        """Write ``edits`` into the workspace and commit them on ``branch``."""
+        ...
+
+    def push(self, root: Path, branch: str, *, token: str = "") -> None:
+        """Push ``branch`` to the workspace's origin."""
+        ...
+
+
+__all__ = ["BASE_TAG", "SKIP_DIRS", "CommitResult", "RepoClient", "summarize_file_tree"]
