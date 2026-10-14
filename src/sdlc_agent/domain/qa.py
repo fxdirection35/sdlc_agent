@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import uuid
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -64,7 +65,7 @@ class TestPlan(Artifact):
             an uncovered criterion is a reviewer decision, not an agent one.
     """
 
-    kind: ArtifactKind = ArtifactKind.TEST_PLAN
+    kind: Literal[ArtifactKind.TEST_PLAN] = ArtifactKind.TEST_PLAN
 
     __test__ = False
 
@@ -134,7 +135,7 @@ class TestRun(Artifact):
             so a disagreement between the two is visible.
     """
 
-    kind: ArtifactKind = ArtifactKind.TEST_RUN
+    kind: Literal[ArtifactKind.TEST_RUN] = ArtifactKind.TEST_RUN
 
     __test__ = False
 
@@ -195,7 +196,7 @@ class QualityGate(Artifact):
         pr_url: Populated once the branch has been pushed and the PR opened.
     """
 
-    kind: ArtifactKind = ArtifactKind.QUALITY_GATE
+    kind: Literal[ArtifactKind.QUALITY_GATE] = ArtifactKind.QUALITY_GATE
 
     test_run_id: uuid.UUID
     verdict: Verdict

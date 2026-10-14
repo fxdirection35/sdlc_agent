@@ -55,7 +55,10 @@ class Artifact(BaseModel):
         artifact_id: Stable identifier that survives serialization, so the
             database index can point at the file copy across restarts.
         kind: Discriminator used when loading an artifact whose concrete type
-            is not known up front.
+            is not known up front. Subclasses narrow this to a
+            ``Literal`` of their own member, so a payload whose ``kind``
+            disagrees with its shape is rejected at the boundary instead of
+            being indexed under the wrong type.
         created_at: UTC timestamp set at construction time.
         schema_version: Bumped when the artifact shape changes in a way that
             older readers cannot parse; enables forward-compatible storage.

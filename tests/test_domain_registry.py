@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from typing import get_args
 
 import pytest
 from pydantic import ValidationError
@@ -38,6 +39,60 @@ class TestArtifactTypeRegistry:
             assert instance_kind is kind, (
                 f"{artifact_type.__name__} declares {instance_kind}, not {kind}"
             )
+
+
+class TestKindNarrowing:
+    """A payload's ``kind`` must agree with the shape of its other fields.
+
+    Each subclass narrows ``kind`` to a ``Literal`` of its own member. Without
+    that, an LLM could emit a PRD-shaped body labelled ``design``; it would
+    validate, then be indexed and dispatched under the wrong type, and the
+    mismatch would only surface steps later.
+    """
+
+    def test_every_type_narrows_kind_to_a_literal(self) -> None:
+        """Covers all eight artifacts, so a new one cannot skip the narrowing."""
+        for kind, artifact_type in ARTIFACT_TYPES.items():
+            annotation = artifact_type.model_fields["kind"].annotation
+            args = get_args(annotation)
+
+            assert args == (kind,), (
+                f"{artifact_type.__name__}.kind allows {args}, expected only {kind!r}"
+            )
+
+    @pytest.mark.parametrize("wrong_kind", [k for k in ArtifactKind if k is not ArtifactKind.PRD])
+    def test_prd_rejects_a_foreign_kind(self, wrong_kind: ArtifactKind) -> None:
+        """The PRD accepts "prd" and nothing else, regardless of its valid body."""
+        payload = {
+            "kind": wrong_kind.value,
+            "requirement_id": str(uuid.uuid4()),
+            "problem_statement": "Data cannot leave the app.",
+            "goals": ("CSV export",),
+            "acceptance_criteria": ({"statement": "has a header", "verification": "pytest"},),
+        }
+
+        with pytest.raises(ValidationError):
+            ProductRequirements.model_validate(payload)
+
+    def test_load_artifact_dispatches_before_shape_validation(self) -> None:
+        """Dispatch reads the raw kind, then the target type rejects the body.
+
+        The two failure modes stay distinguishable: an unknown kind is a
+        ValueError from dispatch, a known kind with the wrong shape is a
+        ValidationError from the model.
+        """
+        mismatched = json.dumps(
+            {
+                "kind": "design",
+                "requirement_id": str(uuid.uuid4()),
+                "problem_statement": "p",
+                "goals": ("g",),
+                "acceptance_criteria": ({"statement": "s", "verification": "v"},),
+            }
+        )
+
+        with pytest.raises(ValidationError):
+            load_artifact(mismatched)
 
 
 class TestLoadArtifact:

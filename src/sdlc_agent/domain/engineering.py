@@ -8,6 +8,7 @@ sandbox repository as a branch, ready for QA.
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 from pydantic import Field, field_validator
 
@@ -32,7 +33,7 @@ class Design(Artifact):
             these stops a later reviewer from re-litigating a settled decision.
     """
 
-    kind: ArtifactKind = ArtifactKind.DESIGN
+    kind: Literal[ArtifactKind.DESIGN] = ArtifactKind.DESIGN
 
     prd_id: uuid.UUID
     summary: str = Field(min_length=1)
@@ -71,7 +72,7 @@ class Task(Artifact):
             to detect cycles before any LLM call is made.
     """
 
-    kind: ArtifactKind = ArtifactKind.TASK_BREAKDOWN
+    kind: Literal[ArtifactKind.TASK_BREAKDOWN] = ArtifactKind.TASK_BREAKDOWN
 
     design_id: uuid.UUID
     title: str = Field(min_length=1, max_length=300)
@@ -105,7 +106,7 @@ class CodeChange(Artifact):
         summary: The agent's own account of what changed and why.
     """
 
-    kind: ArtifactKind = ArtifactKind.CODE_CHANGE
+    kind: Literal[ArtifactKind.CODE_CHANGE] = ArtifactKind.CODE_CHANGE
 
     task_id: uuid.UUID
     branch: str = Field(min_length=1)

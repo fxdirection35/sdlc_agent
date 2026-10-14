@@ -10,6 +10,7 @@ reconstructed afterwards.
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -28,7 +29,7 @@ class Requirement(Artifact):
         source_repo: Git remote the work will land in, cloned into the sandbox.
     """
 
-    kind: ArtifactKind = ArtifactKind.REQUIREMENT
+    kind: Literal[ArtifactKind.REQUIREMENT] = ArtifactKind.REQUIREMENT
 
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(min_length=1)
@@ -81,7 +82,7 @@ class ProductRequirements(Artifact):
             these is better than letting the PM agent guess silently.
     """
 
-    kind: ArtifactKind = ArtifactKind.PRD
+    kind: Literal[ArtifactKind.PRD] = ArtifactKind.PRD
 
     requirement_id: uuid.UUID
     problem_statement: str = Field(min_length=1)
