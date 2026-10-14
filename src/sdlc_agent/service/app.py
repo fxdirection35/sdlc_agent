@@ -35,6 +35,7 @@ from sdlc_agent.domain.base import PipelineRole
 from sdlc_agent.domain.product import Requirement
 from sdlc_agent.pipeline import (
     GATE_ARTIFACT,
+    CodeIntegrations,
     GraphConstructionError,
     Role,
     StageName,
@@ -65,11 +66,12 @@ CheckpointerFactory = Callable[[], AbstractContextManager[BaseCheckpointSaver[An
 #: Environment variables the deployment assembly reads (service.main). They
 #: live here - the import-safe module - rather than there, because main builds
 #: its app at import time and there is no config-file entry for them: the
-#: first two are credentials (HARNESS_SPEC.md 4.1), the third is a path that
-#: exists only in a built deployment.
+#: first two are credentials (HARNESS_SPEC.md 4.1), the rest are paths that
+#: exist only in a built deployment.
 DATABASE_URL_ENV = "SDLC_DATABASE_URL"
 CONFIG_PATH_ENV = "SDLC_CONFIG_PATH"
 STATIC_DIR_ENV = "SDLC_STATIC_DIR"
+WORKSPACES_DIR_ENV = "SDLC_WORKSPACES_DIR"
 
 #: Bound on the run-list scan. Generous for an internal tool; exists so a
 #: checkpoint store that grows without cleanup cannot turn the list endpoint
@@ -177,14 +179,18 @@ class _Runs:
         config: PlatformConfig,
         executor: TestExecutor,
         checkpointer_factory: CheckpointerFactory,
+        code: CodeIntegrations | None = None,
     ) -> None:
         self._roles = roles
         self._config = config
         self._executor = executor
         self._checkpointer_factory = checkpointer_factory
+        self._code = code
 
     def _graph_with(self, saver: BaseCheckpointSaver[Any]) -> Any:
-        return build_graph(self._roles, self._config, self._executor, checkpointer=saver)
+        return build_graph(
+            self._roles, self._config, self._executor, checkpointer=saver, code=self._code
+        )
 
     def start(self, request: RunCreateRequest) -> RunResponse:
         """Mint a run id and run the pipeline to its first stop.
@@ -294,17 +300,19 @@ def create_app(
     executor: TestExecutor,
     checkpointer_factory: CheckpointerFactory,
     static_dir: Path | None = None,
+    code: CodeIntegrations | None = None,
 ) -> FastAPI:
     """Assemble the service.
 
     Everything injectable is a parameter: the roles (scripted in tests,
     litellm in deployment), the executor (sandbox extra in deployment), the
-    checkpointer factory (in-memory in tests, Postgres in deployment), and
-    the built SPA's directory (None in tests and API-only deployments).
+    checkpointer factory (in-memory in tests, Postgres in deployment), the
+    built SPA's directory (None in tests and API-only deployments), and the
+    code-integration bundle (None keeps the artifact-only topology).
     ``create_app_from_env`` in :mod:`sdlc_agent.service.main` is the deployed
     assembly; this function is the tested one.
     """
-    runs = _Runs(roles, config, executor, checkpointer_factory)
+    runs = _Runs(roles, config, executor, checkpointer_factory, code=code)
     app = FastAPI(title="sdlc-agent", version=sdlc_agent.__version__)
 
     @app.get("/api/health")
@@ -410,6 +418,7 @@ __all__ = [
     "CONFIG_PATH_ENV",
     "DATABASE_URL_ENV",
     "STATIC_DIR_ENV",
+    "WORKSPACES_DIR_ENV",
     "CheckpointerFactory",
     "create_app",
 ]

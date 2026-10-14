@@ -20,9 +20,15 @@ from fastapi.testclient import TestClient
 
 from sdlc_agent.config import PlatformConfig
 from sdlc_agent.domain.base import PipelineRole
-from sdlc_agent.pipeline import Role, ScriptedRole, StubExecutor, make_memory_checkpointer
+from sdlc_agent.pipeline import (
+    CodeIntegrations,
+    Role,
+    ScriptedRole,
+    StubExecutor,
+    make_memory_checkpointer,
+)
 from sdlc_agent.service.app import create_app
-from tests.pipeline.helpers import ROLE_KINDS, make_artifact
+from tests.pipeline.helpers import ROLE_KINDS, FakeRepoClient, make_artifact
 
 
 def make_config(budget_usd: float = 5.0) -> PlatformConfig:
@@ -59,7 +65,7 @@ def make_roles(**role_kwargs: Any) -> dict[PipelineRole, Role]:
     }
 
 
-def make_client(*, static_dir: Any = None, **role_kwargs: Any) -> TestClient:
+def make_client(*, static_dir: Any = None, code: Any = None, **role_kwargs: Any) -> TestClient:
     saver = make_memory_checkpointer()
     app = create_app(
         roles=make_roles(**role_kwargs),
@@ -67,6 +73,7 @@ def make_client(*, static_dir: Any = None, **role_kwargs: Any) -> TestClient:
         executor=StubExecutor(),
         checkpointer_factory=lambda: nullcontext(saver),
         static_dir=static_dir,
+        code=code,
     )
     return TestClient(app)
 
@@ -457,3 +464,31 @@ class TestUnknownRun:
 
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
+
+
+# -- code flow --------------------------------------------------------------------
+
+
+class TestCodeFlowThroughHttp:
+    """The bundle passed to create_app decides the topology the service runs:
+    with one, the very first request grounds the run in a workspace; without
+    it, the pre-code-flow shape is served unchanged."""
+
+    def test_a_run_with_the_bundle_checks_out_before_the_pm(self, tmp_path: Any) -> None:
+        repo = FakeRepoClient()
+        client = make_client(code=CodeIntegrations(repo=repo, workspaces_dir=tmp_path))
+
+        response = create_run(client)
+
+        assert response.status_code == 201
+        trail = [f"{entry['stage']}:{entry['event']}" for entry in response.json()["audit"]]
+        assert trail[0] == "checkout:checkout_cloned"
+        assert len(repo.clones) == 1
+
+    def test_without_the_bundle_no_checkout_stage_ever_runs(self) -> None:
+        client = make_client()
+
+        response = create_run(client)
+
+        trail = [entry["stage"] for entry in response.json()["audit"]]
+        assert "checkout" not in trail

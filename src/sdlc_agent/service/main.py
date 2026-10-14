@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import tempfile
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -26,13 +27,15 @@ from fastapi import FastAPI
 
 from sdlc_agent.config import MissingCredentialError, PlatformConfig, load_config
 from sdlc_agent.domain.base import PipelineRole
-from sdlc_agent.pipeline import TestExecutor, make_memory_checkpointer
+from sdlc_agent.integrations import GithubPullRequests, SubprocessGit
+from sdlc_agent.pipeline import CodeIntegrations, TestExecutor, make_memory_checkpointer
 from sdlc_agent.pipeline.llm_roles import LitellmRole
 from sdlc_agent.pipeline.postgres import postgres_checkpointer
 from sdlc_agent.service.app import (
     CONFIG_PATH_ENV,
     DATABASE_URL_ENV,
     STATIC_DIR_ENV,
+    WORKSPACES_DIR_ENV,
     CheckpointerFactory,
     create_app,
 )
@@ -104,6 +107,44 @@ def executor_from_env() -> TestExecutor:
     return SandboxExecutor()
 
 
+def workspaces_dir_from_env() -> Path:
+    """Where per-run repository workspaces live.
+
+    Unset means under the system temp directory: a host that never chose a
+    durable location gets per-boot workspaces, which the deliver node's sha
+    guard turns into an honest escalation after a restart - never a silent
+    push of unverified code. Deployments that want gates (which can sit for
+    days) to find the same clone set the variable to a named volume.
+    """
+    raw = os.environ.get(WORKSPACES_DIR_ENV, "")
+    if raw:
+        return Path(raw)
+    return Path(tempfile.gettempdir()) / "sdlc-agent-workspaces"
+
+
+def code_integrations_from_env(config: PlatformConfig) -> CodeIntegrations | None:
+    """The real-code bundle, or ``None`` when the config keeps code flow off.
+
+    A missing github section is a deliberate off switch, not an error. With
+    one, the token is resolved once here - startup has already proven it
+    exists - and travels only through the in-memory client seams: nothing in
+    this function writes it to argv, disk or the graph's state.
+    """
+    if config.github is None:
+        return None
+    token = config.resolve_github_token()
+    return CodeIntegrations(
+        repo=SubprocessGit(),
+        workspaces_dir=workspaces_dir_from_env(),
+        token=token,
+        pulls=GithubPullRequests(
+            token=token,
+            api_base_url=config.github.api_base_url,
+            git_host=config.github.git_host,
+        ),
+    )
+
+
 def create_app_from_env() -> FastAPI:
     """Build the deployed app: config file, litellm roles, sandbox executor."""
     config_path = Path(os.environ.get(CONFIG_PATH_ENV, str(DEFAULT_CONFIG_PATH)))
@@ -118,6 +159,11 @@ def create_app_from_env() -> FastAPI:
         )
     else:
         logger.info("checkpoint storage is %s", storage)
+    code = code_integrations_from_env(config)
+    if code is None:
+        logger.info("code flow is off (no github section); runs are artifact-only")
+    else:
+        logger.info("code flow is on; workspaces under %s", code.workspaces_dir)
     static_dir = static_dir_from_env()
     return create_app(
         roles={role: LitellmRole(role, config) for role in PipelineRole},
@@ -125,6 +171,7 @@ def create_app_from_env() -> FastAPI:
         executor=executor_from_env(),
         checkpointer_factory=factory,
         static_dir=static_dir,
+        code=code,
     )
 
 
@@ -157,7 +204,9 @@ __all__ = [
     "DATABASE_URL_ENV",
     "app",
     "checkpointer_from_env",
+    "code_integrations_from_env",
     "create_app_from_env",
     "require_startup_credentials",
     "static_dir_from_env",
+    "workspaces_dir_from_env",
 ]

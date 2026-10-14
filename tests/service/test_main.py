@@ -15,7 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from sdlc_agent.service.app import CONFIG_PATH_ENV
+from sdlc_agent.service.app import CONFIG_PATH_ENV, WORKSPACES_DIR_ENV
 
 #: The example config is loadable and key-free (CLAUDE.md: config files carry
 #: variable NAMES, never secrets), which makes it the right fixture here.
@@ -167,5 +167,64 @@ class TestCheckpointerFromEnv:
                 "factory, description = checkpointer_from_env()\n"
                 "assert 'postgres' in description, description\n"
                 "ctx = factory()\n"  # constructed, never entered
+            )
+        )
+
+
+class TestCodeIntegrationsFromEnv:
+    def test_the_deployed_assembly_builds_the_bundle(self, tmp_path: Path) -> None:
+        """With the shipped example (github section on), assembly must hand
+        the graph a real bundle. A None default slipping in here would serve
+        the artifact-only topology while the config promises real PRs - the
+        silent feature-off this pin exists to prevent."""
+        assert_ok(
+            run_service_code(
+                "import os\n"
+                "from pathlib import Path\n"
+                "from sdlc_agent.config import load_config\n"
+                "from sdlc_agent.pipeline import CodeIntegrations\n"
+                "from sdlc_agent.service.app import CONFIG_PATH_ENV, WORKSPACES_DIR_ENV\n"
+                "from sdlc_agent.service.main import code_integrations_from_env\n"
+                "code = code_integrations_from_env(load_config(os.environ[CONFIG_PATH_ENV]))\n"
+                "assert isinstance(code, CodeIntegrations), code\n"
+                "assert code.workspaces_dir == Path(os.environ[WORKSPACES_DIR_ENV])\n"
+                "assert code.token == os.environ['GH_TOKEN']\n"
+                "assert code.pulls is not None\n",
+                env_extra={WORKSPACES_DIR_ENV: str(tmp_path / "ws")},
+            )
+        )
+
+    def test_no_github_section_means_code_flow_off(self, tmp_path: Path) -> None:
+        """Absence is a deliberate off switch: assembly returns None and the
+        service still boots - artifact-only, exactly as before code flow."""
+        config = tmp_path / "no-github.yaml"
+        config.write_text(
+            "providers:\n"
+            "  deepseek: {api_key_env: DEEPSEEK_API_KEY, instructor_mode: json}\n"
+            "roles:\n"
+            "  product_manager: {provider: deepseek, model: deepseek-v4-flash}\n"
+            "  architect: {provider: deepseek, model: deepseek-v4-flash}\n"
+            "  developer: {provider: deepseek, model: deepseek-v4-flash}\n"
+            "  qa: {provider: deepseek, model: deepseek-v4-flash}\n",
+            encoding="utf-8",
+        )
+        assert_ok(
+            run_service_code(
+                "from sdlc_agent.config import load_config\n"
+                "from sdlc_agent.service.main import code_integrations_from_env\n"
+                f"assert code_integrations_from_env(load_config({config.as_posix()!r})) is None\n"
+            )
+        )
+
+    def test_workspaces_default_under_the_system_temp(self) -> None:
+        """No configured location: per-boot workspaces under the system temp.
+        The deliver sha guard turns that into an honest escalation after a
+        restart, never a silent push of unverified code."""
+        assert_ok(
+            run_service_code(
+                "from sdlc_agent.service.main import workspaces_dir_from_env\n"
+                "directory = workspaces_dir_from_env()\n"
+                "assert directory.name == 'sdlc-agent-workspaces', directory\n",
+                env_extra={WORKSPACES_DIR_ENV: ""},
             )
         )
