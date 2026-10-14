@@ -331,3 +331,39 @@ class TestPromptShape:
         content = fake.calls[0]["messages"][1]["content"]
         assert "prd:" in content
         assert "code_change:" not in content
+
+    def test_an_empty_repo_tree_leaves_the_message_byte_identical(self) -> None:
+        """The cassette contract: a role without a workspace must send the
+        exact message recorded before the tree section existed. Any change to
+        this string is a deliberate prompt change and needs a re-record."""
+        requirement = make_requirement()
+        prd = make_prd_artifact()
+        context = RoleContext(
+            requirement=requirement,
+            upstream={ArtifactKind.PRD: prd},
+            feedback="make the goals testable",
+        )
+
+        expected = (
+            f"Requirement:\n{requirement.to_json()}\n\n"
+            f"prd:\n{prd.to_json()}\n\n"
+            "Your previous attempt was rejected with this feedback. "
+            "Address it directly:\nmake the goals testable\n\n"
+            "Produce the design now."
+        )
+
+        assert llm_roles._user_message(PipelineRole.ARCHITECT, context) == expected
+
+    def test_the_tree_section_sits_between_artifacts_and_feedback(self) -> None:
+        context = RoleContext(
+            requirement=make_requirement(),
+            feedback="tighten it",
+            repo_tree="src/\n  app.py",
+        )
+
+        message = llm_roles._user_message(PipelineRole.DEVELOPER, context)
+
+        assert "Repository file tree:\nsrc/\n  app.py" in message
+        assert message.index("Repository file tree:") < message.index(
+            "Your previous attempt was rejected"
+        )

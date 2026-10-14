@@ -68,6 +68,9 @@ class RoleContext:
         attempt: Which attempt this is, from 1. Lets a role vary its approach on
             a retry rather than reproducing the rejected output.
         repo_root: Sandbox working directory, if the role touches code.
+        repo_tree: A bounded file-tree rendering of ``repo_root``, precomputed
+            by the graph so every implementation of a role sees the same view.
+            Empty when the run has no workspace.
     """
 
     requirement: Requirement
@@ -75,6 +78,7 @@ class RoleContext:
     feedback: str = ""
     attempt: int = 1
     repo_root: str = ""
+    repo_tree: str = ""
 
 
 class Role(Protocol):

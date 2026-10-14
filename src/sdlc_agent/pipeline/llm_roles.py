@@ -112,6 +112,11 @@ def _user_message(role: PipelineRole, context: RoleContext) -> str:
     sections = [f"Requirement:\n{context.requirement.to_json()}"]
     for kind, artifact in context.upstream.items():
         sections.append(f"{kind.value}:\n{_artifact_json(artifact)}")
+    if context.repo_tree:
+        # Strictly conditional: an empty tree must leave the message untouched,
+        # byte for byte - the golden cassettes for roles that never see a repo
+        # replay the exact requests recorded before this section existed.
+        sections.append(f"Repository file tree:\n{context.repo_tree}")
     if context.feedback:
         sections.append(
             "Your previous attempt was rejected with this feedback. "
