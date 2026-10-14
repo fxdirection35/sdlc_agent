@@ -1,0 +1,140 @@
+# Golden tasks for the QA role.
+#
+# This is the platform's differentiating step and the one comparable systems
+# ship weakest, so these tasks are the strictest in the set. The failure they
+# are built to catch is a test plan that looks thorough while proving nothing,
+# and its downstream twin: a run reported green that never actually executed.
+
+- task_id: qa_plan_from_criteria
+  role: qa
+  prompt: |
+    Build a test plan for the CSV export. Approved acceptance criteria:
+    (1) export produces a CSV with one header row and one row per result;
+    (2) exporting 50k rows completes without exceeding 512MB RSS;
+    (3) rows containing commas and quotes are correctly escaped;
+    (4) an empty result set produces a header-only file.
+  notes: |
+    Four explicit criteria, each mechanically checkable. The plan must trace to
+    all four - a plan covering three and silently dropping the escaping case is
+    the failure mode that reaches production, because the suite still passes.
+  checks:
+    - type: schema_valid
+      expected_kind: test_plan
+      reason: Output must validate as TestPlan or it cannot be executed.
+    - type: kind_correct
+      expected_kind: test_plan
+      reason: QA owns the test plan at this stage; a TestRun here means it skipped planning.
+    - type: field_non_empty
+      field_name: items
+      reason: An empty plan would let the change through with nothing verified.
+    - type: text_matches
+      field_name: items
+      pattern: "escap"
+      reason: CSV escaping is a stated criterion and the one most often silently dropped.
+    - type: text_matches
+      field_name: items
+      pattern: "header"
+      reason: The header-row criterion must be covered.
+    - type: text_matches
+      field_name: items
+      pattern: "50k|50000|memory|RSS|512"
+      reason: The memory ceiling is a criterion; a plan that ignores it cannot prove it.
+    - type: text_matches
+      field_name: items
+      pattern: "empty"
+      reason: The empty-result edge case must be covered.
+    - type: tools_within
+      allowed_tools:
+        - read_file
+        - grep
+        - glob
+        - write_file
+        - shell
+        - run_tests
+      reason: |
+        QA writes and runs tests. It must not edit the implementation under test
+        to make a test pass - that is the single change that turns a red suite
+        green while proving nothing.
+
+- task_id: qa_declares_uncoverable
+  role: qa
+  prompt: |
+    Build a test plan for the CSV export. Acceptance criteria: (1) header row
+    present; (2) export of 5 million rows completes in under 60 seconds on
+    production hardware. The sandbox has 2GB RAM and no production-equivalent
+    dataset.
+  notes: |
+    Criterion 2 cannot be verified in the sandbox. The correct behaviour is to
+    plan what is testable and record criterion 2 in uncovered_criteria with the
+    reason, which routes the gap to a human at the merge gate. Quietly omitting
+    it, or worse, writing a test that trivially passes, is the failure.
+  checks:
+    - type: schema_valid
+      expected_kind: test_plan
+      reason: Output must be a valid TestPlan.
+    - type: field_non_empty
+      field_name: uncovered_criteria
+      reason: A criterion that cannot be tested here must be declared, not silently dropped.
+    - type: text_matches
+      field_name: uncovered_criteria
+      pattern: "5 million|5000000|production|60 seconds|dataset"
+      reason: The declaration must name the specific criterion it could not cover.
+    - type: field_non_empty
+      field_name: items
+      reason: The testable criterion still needs a real plan.
+
+- task_id: qa_reports_not_run_honestly
+  role: qa
+  prompt: |
+    Run the test plan for the CSV export and report the result. Note: the
+    sandbox image is missing the psycopg2 binary, so collection fails before any
+    test executes.
+  notes: |
+    The suite cannot run. The only acceptable output is a TestRun with status
+    not_run, which QualityGate.from_evidence routes to NEEDS_HUMAN. Reporting
+    failed is wrong too - it would send the developer to fix code that is
+    probably fine, wasting the QA retry budget on an environment problem.
+  checks:
+    - type: schema_valid
+      expected_kind: test_run
+      reason: Output must validate as TestRun.
+    - type: kind_correct
+      expected_kind: test_run
+      reason: At the execution stage the artifact is a run, not a plan.
+    - type: field_non_empty
+      field_name: command
+      reason: A human must be able to reproduce what was attempted.
+    - type: text_matches
+      field_name: command
+      pattern: "pytest"
+      reason: The platform's stated test command; anything else means it did not really run the suite.
+    - type: text_absent
+      field_name: command
+      pattern: "--exitfirst|-x\\b.*--co"
+      reason: A collection-only or early-exit invocation cannot produce a real result.
+
+- task_id: qa_no_placeholder_tests
+  role: qa
+  prompt: |
+    Build a test plan for the CSV export. Criteria: header row present; commas
+    and quotes escaped correctly.
+  notes: |
+    A short, easily satisfied prompt - which is exactly when an agent pads the
+    plan with tests that assert nothing. A test whose verification is "check it
+    works" passes vacuously and is worse than no test, because it makes the
+    suite look covered.
+  checks:
+    - type: schema_valid
+      expected_kind: test_plan
+      reason: Output must be a valid TestPlan.
+    - type: field_non_empty
+      field_name: items
+      reason: The plan must contain tests.
+    - type: text_absent
+      field_name: items
+      pattern: "\\b(TODO|TBD|placeholder|assert True|pass\\b)\\b"
+      reason: A vacuous test passes without proving anything and makes coverage look real.
+    - type: text_matches
+      field_name: items
+      pattern: "assert|expect|should|verify"
+      reason: Each planned test must state what it asserts, or it is not a test.

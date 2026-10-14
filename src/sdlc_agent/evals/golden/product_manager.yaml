@@ -1,0 +1,96 @@
+# Golden tasks for the product_manager role.
+#
+# These are written before the agent exists, which is deliberate: the
+# expectation is the specification. A prompt tuned to satisfy these is a prompt
+# tuned against a stated bar rather than against whatever looked right.
+#
+# Prompts below are written as a requester would write them, ambiguity
+# included. Cleaning them up to be unambiguous would measure nothing about the
+# role's actual job, which is to turn a vague ask into a reviewable PRD.
+
+- task_id: pm_csv_export
+  role: product_manager
+  prompt: |
+    Our reporting page is useless for anyone who needs the data elsewhere.
+    People screenshot tables and retype them into Excel. Can we get an export?
+  notes: |
+    Vague on purpose: "an export" does not say which format, which rows, or what
+    happens at scale. The PRD must pin these down or surface them as open
+    questions - guessing silently is the failure this task exists to catch.
+  checks:
+    - type: schema_valid
+      expected_kind: prd
+      reason: Output must validate as ProductRequirements or the architect node cannot consume it.
+    - type: kind_correct
+      expected_kind: prd
+      reason: The PM role owns the PRD; any other kind means the handoff is mislabelled.
+    - type: field_non_empty
+      field_name: problem_statement
+      reason: A PRD with no problem statement gives the architect nothing to design against.
+    - type: field_non_empty
+      field_name: goals
+      reason: Goals are what the acceptance criteria are derived from.
+    - type: field_non_empty
+      field_name: acceptance_criteria
+      reason: The QA agent builds its entire test plan from these; none means no gate.
+    - type: text_matches
+      field_name: acceptance_criteria
+      pattern: "pytest|assert|curl|http|SELECT|command"
+      reason: |
+        Each criterion must name something executable. Matches against the
+        criterion values, not their field names, so a criterion reading
+        "verification: reviewer eyeballs it" does not pass by containing the
+        word "verification".
+    - type: text_absent
+      field_name: problem_statement
+      pattern: "\\b(TODO|TBD|lorem ipsum|placeholder)\\b"
+      reason: Placeholder text validates as non-empty but proves nothing.
+    - type: max_output_tokens
+      limit: 8000
+      reason: A PRD that needs more than this is padding; reviewers will not read it either.
+
+- task_id: pm_scope_boundary
+  role: product_manager
+  prompt: |
+    Add dark mode. Also while you are in there, the settings page needs a
+    rewrite and we should probably support RTL languages at some point.
+  notes: |
+    Three asks bundled, one of which ("at some point") is explicitly not now.
+    The test is whether the PRD separates goals from non_goals instead of
+    silently absorbing everything into scope, which is how a small task becomes
+    an unbounded one.
+  checks:
+    - type: schema_valid
+      expected_kind: prd
+      reason: Output must be a valid PRD.
+    - type: field_non_empty
+      field_name: non_goals
+      reason: A bundled request must produce explicit scope boundaries, not one large goal list.
+    - type: text_absent
+      field_name: goals
+      pattern: "\\brewrite\\b"
+      reason: The settings rewrite is a separate initiative; folding it in hides the scope change.
+    - type: field_non_empty
+      field_name: open_questions
+      reason: "RTL is undated and unspecified: it must be surfaced, not silently dropped or assumed."
+
+- task_id: pm_unactionable_request
+  role: product_manager
+  prompt: |
+    Make the app better. Management wants improvements this quarter.
+  notes: |
+    Not actionable as written. The correct output is a PRD that names concrete
+    goals where they can be inferred and records the rest as open questions -
+    not an invented list of features presented as if they had been requested.
+    Inventing scope here is the most expensive failure the PM role can make.
+  checks:
+    - type: schema_valid
+      expected_kind: prd
+      reason: Even an unactionable request must produce a valid artifact for the gate to review.
+    - type: field_non_empty
+      field_name: open_questions
+      reason: Ambiguity must be surfaced for the human gate rather than resolved by invention.
+    - type: text_absent
+      field_name: acceptance_criteria
+      pattern: "\\b(TODO|TBD|placeholder)\\b"
+      reason: Criteria must be real and testable, or the QA stage has nothing to build on.

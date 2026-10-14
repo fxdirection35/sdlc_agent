@@ -1,0 +1,89 @@
+# Golden tasks for the architect role.
+#
+# The architect turns an approved PRD into a design that a human reviews before
+# any code is written. What matters most here is that the design names real
+# components and contracts, and that it does not quietly widen the scope the
+# PRD fixed - the design gate is the last cheap place to catch that.
+
+- task_id: arch_csv_streaming
+  role: architect
+  prompt: |
+    Design the CSV export from the approved PRD. The reports table can reach
+    200k rows. Existing stack: Django, Postgres, deployed on a 2GB container.
+  notes: |
+    The row count and the memory ceiling together rule out buffering the whole
+    result set. A design that does not address streaming is wrong regardless of
+    how well written it is, so that is the substance of this task.
+  checks:
+    - type: schema_valid
+      expected_kind: design
+      reason: Output must validate as Design or the developer node cannot consume it.
+    - type: kind_correct
+      expected_kind: design
+      reason: The architect owns the design artifact.
+    - type: field_non_empty
+      field_name: components
+      reason: A design naming no component gives the developer nothing to build.
+    - type: field_non_empty
+      field_name: summary
+      reason: Reviewers skim the summary first; an empty one makes the gate useless.
+    - type: text_matches
+      field_name: summary
+      pattern: "stream|chunk|cursor|iterator|generator"
+      reason: 200k rows in a 2GB container requires a streaming approach; buffering is not viable.
+    - type: field_non_empty
+      field_name: risks
+      reason: The memory ceiling is a real risk and must be recorded, not discovered in production.
+    - type: max_output_tokens
+      limit: 8000
+      reason: A design longer than this is restating the PRD rather than making decisions.
+
+- task_id: arch_records_alternatives
+  role: architect
+  prompt: |
+    Design CSV export for the reports page. The PRD is approved. Note that a
+    colleague suggested we should generate the file client-side in JavaScript.
+  notes: |
+    A suggested alternative exists and should be evaluated rather than ignored.
+    Recording why an approach was rejected stops a later reviewer re-litigating
+    a settled decision, which is the whole purpose of the field.
+  checks:
+    - type: schema_valid
+      expected_kind: design
+      reason: Output must be a valid Design.
+    - type: field_non_empty
+      field_name: alternatives_considered
+      reason: A proposed alternative was raised; ignoring it loses the rationale for the choice made.
+    - type: text_matches
+      field_name: alternatives_considered
+      pattern: "client"
+      reason: The client-side suggestion specifically must be addressed, not just any alternative.
+    - type: field_non_empty
+      field_name: components
+      reason: The design must still name what to build.
+
+- task_id: arch_no_scope_creep
+  role: architect
+  prompt: |
+    Design the CSV export from the approved PRD. While you are at it, the
+    reporting module could really use a general-purpose query builder and a
+    scheduled-email feature.
+  notes: |
+    The PRD gate already fixed scope. An architect that absorbs unrequested
+    features produces a design that no longer matches what was approved, and the
+    drift is invisible at the design gate because the design itself looks fine.
+  checks:
+    - type: schema_valid
+      expected_kind: design
+      reason: Output must be a valid Design.
+    - type: field_non_empty
+      field_name: components
+      reason: The design must name components.
+    - type: text_absent
+      field_name: components
+      pattern: "query builder|scheduled.email"
+      reason: Unrequested features must not enter the design; the PRD gate fixed the scope.
+    - type: text_absent
+      field_name: api_changes
+      pattern: "query builder|scheduled.email"
+      reason: Scope creep usually surfaces first as a new endpoint or signature.

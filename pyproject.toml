@@ -62,6 +62,9 @@ packages = ["src/sdlc_agent"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 timeout = 120
+# Do not keep the per-run tmp_path trees after a run; the basetemp directory
+# itself is relocated out of the repository by a hook in tests/conftest.py.
+tmp_path_retention_policy = "none"
 # Turn warnings into failures so a deprecation or a mis-collected class
 # surfaces immediately instead of accumulating in noisy output.
 filterwarnings = ["error"]
