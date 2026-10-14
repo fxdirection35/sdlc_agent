@@ -54,6 +54,26 @@ Harness 是围绕模型的一切脚手架：循环控制、工具接口、上下
 
 复用 OpenHands `conversation/stuck_detector.py`。检测 agent 原地打转（重复相同工具调用、无进展）并强制打断，转入 `interrupt()`。**多 agent 系统最常见的失败模式就是静默打转烧钱。**
 
+### 2.4 门禁必须是独立节点（LangGraph 实测约束）⚠️
+
+**LangGraph 在 resume 时会从头重新执行整个节点函数**，`interrupt()` 之前的代码会再跑一次。已实测确认：
+
+```
+第一次 invoke 后的调用次数 : 1
+resume 之后的调用次数      : 2
+```
+
+因此**调用 LLM 的节点与 `interrupt()` 门禁必须拆成两个节点**。若合在一个节点内，每次人工评审都会让 LLM 调用计费两次——这直接违反 §5.3 的预算护栏，且因为产出被 checkpointer 覆盖而不会表现为错误，只会表现为账单翻倍。
+
+正确拓扑：
+
+```
+[role_node: 调 LLM，产出工件]  →  [gate_node: 仅 interrupt + 记录决定]  →  下一环节
+```
+
+推论：任何**有副作用**的操作（写文件、推分支、开 PR）都必须放在 `interrupt()` **之后**的节点，否则 resume 会重复执行该副作用。
+
+
 ## 3. 工具设计（Agent UX）
 
 Anthropic《Writing Effective Tools for Agents》：**工具设计就是 agent 的用户体验**。
