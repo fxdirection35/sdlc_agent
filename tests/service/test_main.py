@@ -31,6 +31,11 @@ EXAMPLE_CONFIG = str(Path(__file__).resolve().parents[2] / "config.example.yaml"
 API_KEY_ENV = "DEEPSEEK_API_KEY"
 DUMMY_KEY = "sk-deepseek-startup-check-only"
 
+#: The example config ships the github section (deploy = code flow on), so its
+#: token variable is a startup requirement of every happy-path boot too.
+GH_TOKEN_ENV = "GH_TOKEN"
+DUMMY_GH_TOKEN = "gh-startup-check-only"
+
 Completed = subprocess.CompletedProcess[str]
 
 
@@ -39,7 +44,12 @@ def run_service_code(
     env_extra: dict[str, str] | None = None,
 ) -> Completed:
     """Run assembly code in a subprocess with a controlled environment."""
-    env = {**os.environ, CONFIG_PATH_ENV: EXAMPLE_CONFIG, API_KEY_ENV: DUMMY_KEY}
+    env = {
+        **os.environ,
+        CONFIG_PATH_ENV: EXAMPLE_CONFIG,
+        API_KEY_ENV: DUMMY_KEY,
+        GH_TOKEN_ENV: DUMMY_GH_TOKEN,
+    }
     env.update(env_extra or {})
     return subprocess.run(
         [sys.executable, "-c", code],
@@ -91,6 +101,7 @@ class TestUvicornTarget:
                 **os.environ,
                 CONFIG_PATH_ENV: "no-such-config.yaml",
                 API_KEY_ENV: DUMMY_KEY,
+                GH_TOKEN_ENV: DUMMY_GH_TOKEN,
             },
         )
         assert missing.returncode != 0
@@ -113,6 +124,19 @@ class TestUvicornTarget:
 
         assert completed.returncode != 0
         assert API_KEY_ENV in completed.stderr
+
+    def test_a_missing_github_token_refuses_to_boot(self) -> None:
+        """The shipped example ships the github section, so its token is a
+        startup requirement: a service up without it would 500 at every
+        deliver node - health green, runs broken. Empty-string reasoning as
+        above: the repository's real .env can resurrect a dropped variable."""
+        completed = run_service_code(
+            "import sdlc_agent.service.main",
+            env_extra={GH_TOKEN_ENV: ""},
+        )
+
+        assert completed.returncode != 0
+        assert GH_TOKEN_ENV in completed.stderr
 
 
 class TestCheckpointerFromEnv:

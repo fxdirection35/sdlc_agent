@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from sdlc_agent.config import (
     BudgetConfig,
     EffortLevel,
+    GithubConfig,
     MissingCredentialError,
     PlatformConfig,
     ProviderConfig,
@@ -430,6 +431,78 @@ class TestResolveApiKey:
         assert config.providers["anthropic"].api_key_env == "ANTHROPIC_API_KEY"
 
 
+class TestGithubConfig:
+    """The section's presence is the feature switch - absence must mean off,
+    and presence must never carry the token itself."""
+
+    def test_absent_section_means_off(self, minimal_config: PlatformConfig) -> None:
+        assert minimal_config.github is None
+
+    def test_the_section_defaults_to_github_dot_com(self) -> None:
+        github = GithubConfig.model_validate({})
+
+        assert github.api_token_env == "GH_TOKEN"
+        assert github.api_base_url == "https://api.github.com"
+        assert github.git_host == "github.com"
+
+    def test_enterprise_hosts_are_configurable(self) -> None:
+        github = GithubConfig.model_validate(
+            {
+                "api_token_env": "ghe_token",
+                "api_base_url": "https://ghe.example.com/api/v3",
+                "git_host": "ghe.example.com",
+            }
+        )
+
+        assert github.api_token_env == "GHE_TOKEN"  # uppercased like providers
+        assert github.git_host == "ghe.example.com"
+
+    @pytest.mark.parametrize("name", ["", "1NOT_VALID", "HAS-DASH"])
+    def test_rejects_malformed_env_var_names(self, name: str) -> None:
+        """Same failure mode as a provider typo: fail at load, not mid-run."""
+        with pytest.raises(ValidationError):
+            GithubConfig.model_validate({"api_token_env": name})
+
+    def test_rejects_unknown_fields(self) -> None:
+        """extra=forbid: a retired field name must fail loudly, not load as
+        default-enabled with the operator's override silently dropped."""
+        with pytest.raises(ValidationError, match="api_token"):
+            GithubConfig.model_validate({"api_token": "ghp-secret"})
+
+    def test_the_section_parses_from_yaml(self, tmp_path: Path) -> None:
+        path = write_config(tmp_path, MINIMAL_YAML + "\ngithub:\n  api_token_env: GH_TOKEN\n")
+
+        config = load_config(path)
+
+        assert config.github is not None
+        assert config.github.api_token_env == "GH_TOKEN"
+
+    def test_resolves_the_token_from_the_environment(
+        self, minimal_config: PlatformConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config = minimal_config.model_copy(update={"github": GithubConfig.model_validate({})})
+        monkeypatch.setenv("GH_TOKEN", "  github_pat_test\n")
+
+        assert config.resolve_github_token() == "github_pat_test"
+
+    def test_missing_variable_names_itself(
+        self, minimal_config: PlatformConfig, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config = minimal_config.model_copy(update={"github": GithubConfig.model_validate({})})
+        monkeypatch.delenv("GH_TOKEN", raising=False)
+
+        with pytest.raises(MissingCredentialError) as excinfo:
+            config.resolve_github_token()
+
+        assert "GH_TOKEN" in str(excinfo.value)
+
+    def test_resolving_without_a_section_is_an_error(self, minimal_config: PlatformConfig) -> None:
+        """Code delivery is off: asking for its token is a wiring bug, and the
+        message must say so rather than point at a variable."""
+        with pytest.raises(MissingCredentialError, match="no github section"):
+            minimal_config.resolve_github_token()
+
+
 class TestBudgetConfig:
     def test_defaults(self) -> None:
         budget = BudgetConfig()
@@ -573,9 +646,19 @@ class TestShippedExample:
             assert provider.api_key_env.endswith("_KEY")
             assert provider.base_url is None or provider.base_url.startswith("http")
 
+    def test_example_ships_code_flow_enabled(self) -> None:
+        """The deployed default is code flow ON (the plan's decision): the
+        example carries the github section, so a copied config turns on real
+        repositories - and its token becomes a startup requirement."""
+        config = load_config(EXAMPLE_CONFIG)
+
+        assert config.github is not None
+        assert config.github.api_token_env == "GH_TOKEN"
+
     def test_example_documents_the_env_var_it_needs(self) -> None:
         """A user must be able to tell which variable to export by reading it."""
         text = EXAMPLE_CONFIG.read_text(encoding="utf-8")
 
         assert "DEEPSEEK_API_KEY" in text
+        assert "GH_TOKEN" in text
         assert "export" in text

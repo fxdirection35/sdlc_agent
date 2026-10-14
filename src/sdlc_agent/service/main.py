@@ -58,7 +58,7 @@ def checkpointer_from_env() -> tuple[CheckpointerFactory, str]:
 
 
 def require_startup_credentials(config: PlatformConfig) -> None:
-    """Refuse to serve without every provider's credentials.
+    """Refuse to serve without every configured credential.
 
     A service that boots keyless would pass /api/health and then fail every
     run: green-but-broken, the false positive this project refuses elsewhere.
@@ -66,7 +66,9 @@ def require_startup_credentials(config: PlatformConfig) -> None:
     startup, so a credential that existed at boot exists for every request,
     and the graph's RoleError path stays reserved for genuine provider
     trouble (a missing key escaping the graph is pinned as a loud failure in
-    tests/pipeline/test_llm_roles.py and stays that way).
+    tests/pipeline/test_llm_roles.py and stays that way). The GitHub token is
+    checked only when the config carries the github section: a section nobody
+    enabled must not demand a key.
 
     Raises with ALL missing variables named, so an operator fixes the
     deployment in one restart instead of one per role.
@@ -75,6 +77,11 @@ def require_startup_credentials(config: PlatformConfig) -> None:
     for role in PipelineRole:
         try:
             config.resolve_api_key(role)
+        except MissingCredentialError as exc:
+            missing.append(str(exc))
+    if config.github is not None:
+        try:
+            config.resolve_github_token()
         except MissingCredentialError as exc:
             missing.append(str(exc))
     if missing:

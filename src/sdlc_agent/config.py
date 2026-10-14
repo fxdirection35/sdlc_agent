@@ -29,6 +29,15 @@ from sdlc_agent.domain.base import PipelineRole, reject_blank
 #: missing-credential failure at the first LLM call.
 _ENV_VAR_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+
+def _validate_env_var_name(value: str) -> str:
+    """Normalize an env-var name: trimmed, uppercased, shape-checked."""
+    name = reject_blank(value).upper()
+    if not _ENV_VAR_NAME.match(name):
+        raise ValueError(f"{name!r} is not a valid environment variable name")
+    return name
+
+
 #: A provider may legitimately differ from the litellm prefix it needs, so the
 #: config can override it. These are the ones known to differ.
 DEFAULT_LITELLM_PREFIXES: dict[str, str] = {
@@ -112,10 +121,7 @@ class ProviderConfig(BaseModel):
     @field_validator("api_key_env")
     @classmethod
     def _validate_env_name(cls, value: str) -> str:
-        name = reject_blank(value).upper()
-        if not _ENV_VAR_NAME.match(name):
-            raise ValueError(f"{name!r} is not a valid environment variable name")
-        return name
+        return _validate_env_var_name(value)
 
     @field_validator("base_url", "litellm_prefix")
     @classmethod
@@ -195,6 +201,40 @@ class PipelineConfig(BaseModel):
     max_qa_retries: int = Field(default=3, ge=0, le=10)
 
 
+class GithubConfig(BaseModel):
+    """GitHub integration: delivering verified changes as real pull requests.
+
+    The section's presence is the feature switch. This deliberately deviates
+    from ``budget``/``pipeline``, which default in: a silent default here would
+    flip a deployment into real-repository mode without anyone deciding to.
+
+    Attributes:
+        api_token_env: Name of the environment variable holding the
+            fine-grained PAT (pull-request write on the target repositories).
+            Never the token itself - the file is committed.
+        api_base_url: API root; ``https://host/api/v3`` for GitHub Enterprise.
+        git_host: The git-remote host matching that API root, so pull requests
+            open against the host the token actually serves (the slug parser
+            refuses remotes on any other host).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    api_token_env: str = Field(default="GH_TOKEN")
+    api_base_url: str = Field(default="https://api.github.com")
+    git_host: str = Field(default="github.com")
+
+    @field_validator("api_token_env")
+    @classmethod
+    def _validate_env_name(cls, value: str) -> str:
+        return _validate_env_var_name(value)
+
+    @field_validator("api_base_url", "git_host")
+    @classmethod
+    def _strip(cls, value: str) -> str:
+        return reject_blank(value)
+
+
 class PlatformConfig(BaseModel):
     """The whole configuration file.
 
@@ -207,6 +247,8 @@ class PlatformConfig(BaseModel):
             to the enum forces a deliberate choice here.
         budget: Per-task cost ceiling.
         pipeline: Flow limits.
+        github: GitHub integration; ``None`` (no section) means code delivery
+            is off and the pipeline runs the artifact-only topology.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -220,6 +262,7 @@ class PlatformConfig(BaseModel):
     roles: dict[PipelineRole, RoleModelConfig]
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
+    github: GithubConfig | None = None
 
     @model_validator(mode="after")
     def _validate_cross_references(self) -> Self:
@@ -283,6 +326,25 @@ class PlatformConfig(BaseModel):
             raise MissingCredentialError(
                 f"provider {role_config.provider!r} (used by role {role.value!r}) needs "
                 f"environment variable {provider.api_key_env} to be set"
+            )
+        return value
+
+    def resolve_github_token(self) -> str:
+        """Read the GitHub token from the environment, for code delivery.
+
+        Raises:
+            MissingCredentialError: If there is no ``github`` section (the
+                caller asked for a feature that is off) or the variable is
+                unset or empty. Lazy exactly like :meth:`resolve_api_key`, so
+                CI can validate config files without a token present.
+        """
+        if self.github is None:
+            raise MissingCredentialError("no github section configured; code delivery is off")
+        value = os.environ.get(self.github.api_token_env, "").strip()
+        if not value:
+            raise MissingCredentialError(
+                f"github integration needs environment variable "
+                f"{self.github.api_token_env} to be set"
             )
         return value
 

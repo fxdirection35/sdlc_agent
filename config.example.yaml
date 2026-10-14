@@ -6,6 +6,7 @@
 #
 #   export DEEPSEEK_API_KEY=sk-...
 #   export ANTHROPIC_API_KEY=sk-ant-...   # only if you route roles to Claude
+#   export GH_TOKEN=github_pat_...        # required below - see github section
 #
 # Roles and providers are validated at load: a role pointing at an undefined
 # provider, or a missing role, fails here rather than at the first LLM call.
@@ -74,3 +75,17 @@ pipeline:
   # is pulled in. Must be finite: an unbounded fix-and-retest loop is a budget
   # fire with no exit.
   max_qa_retries: 3
+
+# GitHub integration: deliver verified changes as real pull requests. The
+# section's PRESENCE enables code flow (clone the target repo -> apply the
+# developer's edits -> push + open the PR before the merge gate); deleting the
+# section reverts to the artifact-only topology. The token is a fine-grained
+# PAT with pull-request write on the target repositories, read from the
+# environment - never written here.
+github:
+  api_token_env: GH_TOKEN
+  # Defaults shown for clarity; for GitHub Enterprise point both at your host:
+  #   api_base_url: https://ghe.example.com/api/v3
+  #   git_host: ghe.example.com
+  api_base_url: https://api.github.com
+  git_host: github.com
