@@ -7,10 +7,11 @@ sandbox repository as a branch, ready for QA.
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from sdlc_agent.domain.base import Artifact, ArtifactKind, reject_blank
 
@@ -90,6 +91,49 @@ class Task(Artifact):
         return tuple(reject_blank(item) for item in value)
 
 
+class FileEdit(BaseModel):
+    """One file-level edit the developer role claims, before anything is written.
+
+    The deterministic apply step turns these into a git commit; the model only
+    validates the claim (HARNESS_SPEC.md: the LLM produces content, code
+    controls the flow).
+
+    Attributes:
+        path: Workspace-relative POSIX path. Absolute paths, backslashes and
+            ``..`` segments are rejected: an edit that can escape the workspace
+            is not an edit, it is a write anywhere on the machine.
+        content: The complete file content for a ``write`` - the whole file,
+            not a diff, because single-shot structured output cannot be
+            trusted to re-anchor hunks. Must be empty for a ``delete``.
+        op: ``write`` creates or replaces the file; ``delete`` removes it.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    path: str = Field(min_length=1)
+    content: str = ""
+    op: Literal["write", "delete"] = "write"
+
+    @field_validator("path")
+    @classmethod
+    def _check_path(cls, value: str) -> str:
+        value = reject_blank(value)
+        if "\\" in value:
+            raise ValueError("path must use forward slashes, not backslashes")
+        if value.startswith("/") or re.match(r"^[A-Za-z]:", value):
+            raise ValueError("path must be workspace-relative, not absolute")
+        if ".." in value.split("/"):
+            raise ValueError("path must not traverse upward (..)")
+        return value
+
+    @model_validator(mode="after")
+    def _delete_carries_no_content(self) -> FileEdit:
+        """A delete edit with content is neither a delete nor a write."""
+        if self.op == "delete" and self.content:
+            raise ValueError("a delete edit must not carry content")
+        return self
+
+
 class CodeChange(Artifact):
     """What the developer agent produced inside the sandbox.
 
@@ -100,24 +144,56 @@ class CodeChange(Artifact):
 
     Attributes:
         task_id: The task this change implements.
-        branch: Branch name pushed from the sandbox.
-        commit_sha: Head commit of the branch at handoff time.
+        branch: Branch name of the applied change. Empty until the deterministic
+            apply step commits the edits and fills it in - the developer role
+            cannot know a name it did not cause.
+        commit_sha: Head commit of the branch. Empty until apply, for the same
+            reason.
         files_changed: Paths touched, for review triage and blast-radius checks.
+            The developer's claim pre-apply; the apply step cross-checks it
+            against what git actually recorded.
+        edits: The developer's claimed file edits. This is the payload the
+            apply step writes into the workspace - the patch bridge between a
+            structured-output call and a real commit.
         summary: The agent's own account of what changed and why.
+        pr_url: Where the change can be reviewed once the deliver step has
+            pushed the branch and opened a pull request. Empty until then.
     """
 
     kind: Literal[ArtifactKind.CODE_CHANGE] = ArtifactKind.CODE_CHANGE
 
     task_id: uuid.UUID
-    branch: str = Field(min_length=1)
-    commit_sha: str = Field(min_length=7, max_length=40)
+    branch: str = ""
+    commit_sha: str = ""
     files_changed: tuple[str, ...] = ()
+    edits: tuple[FileEdit, ...] = ()
     summary: str = Field(min_length=1)
+    pr_url: str = ""
 
-    @field_validator("branch", "summary")
+    @field_validator("summary")
     @classmethod
     def _strip(cls, value: str) -> str:
         return reject_blank(value)
+
+    @field_validator("branch")
+    @classmethod
+    def _strip_branch(cls, value: str) -> str:
+        # Empty is the honest pre-apply state; whitespace-only is a blank
+        # pretending to be a value and stays rejected.
+        if value == "":
+            return value
+        return reject_blank(value)
+
+    @field_validator("commit_sha")
+    @classmethod
+    def _check_sha(cls, value: str) -> str:
+        # Same 7-40 window as before, with an added empty state for the
+        # not-yet-applied artifact.
+        if value == "":
+            return value
+        if not 7 <= len(value) <= 40:
+            raise ValueError("commit_sha must be empty (before apply) or 7-40 characters")
+        return value
 
     @field_validator("files_changed")
     @classmethod

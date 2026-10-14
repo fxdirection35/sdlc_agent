@@ -191,6 +191,33 @@ class TestLoadArtifact:
         assert isinstance(loaded_gate, QualityGate)
         assert loaded_gate.verdict is gate.verdict
 
+    def test_loads_code_change_with_edits(self) -> None:
+        """The patch-bridge shape: edits plus the post-apply pointers must both
+        survive a kind-dispatched round trip."""
+        change = CodeChange.model_validate(
+            {
+                "task_id": uuid.uuid4(),
+                "branch": "sdlc-agent/abc123",
+                "commit_sha": "a1b2c3d4e5f6",
+                "files_changed": ("src/reports/export.py",),
+                "edits": (
+                    {
+                        "path": "src/reports/export.py",
+                        "content": "def export(rows):\n    ...\n",
+                        "op": "write",
+                    },
+                ),
+                "summary": "Added the writer.",
+                "pr_url": "https://github.com/example/reports/pull/7",
+            }
+        )
+
+        loaded = load_artifact(change.to_json())
+
+        assert isinstance(loaded, CodeChange)
+        assert loaded.edits[0].path == "src/reports/export.py"
+        assert loaded.pr_url.endswith("/pull/7")
+
     def test_rejects_payload_without_kind(self) -> None:
         with pytest.raises(ValueError, match="no 'kind' field"):
             load_artifact(json.dumps({"title": "no kind here"}))

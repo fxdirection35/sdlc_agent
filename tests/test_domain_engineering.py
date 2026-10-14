@@ -1,4 +1,4 @@
-"""Tests for the engineering-role artifacts: Design, Task and CodeChange."""
+"""Tests for the engineering-role artifacts: Design, Task, FileEdit and CodeChange."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from sdlc_agent.domain.engineering import CodeChange, Design, Task
+from sdlc_agent.domain.engineering import CodeChange, Design, FileEdit, Task
 
 
 def make_design(**overrides: object) -> Design:
@@ -112,13 +112,71 @@ class TestTask:
         assert restored.depends_on == (dependency,)
 
 
+def make_file_edit(**overrides: object) -> FileEdit:
+    payload: dict[str, object] = {
+        "path": "src/reports/export.py",
+        "content": "def export(rows):\n    ...\n",
+        "op": "write",
+    }
+    payload.update(overrides)
+    return FileEdit.model_validate(payload)
+
+
+class TestFileEdit:
+    def test_valid_write_edit(self) -> None:
+        edit = make_file_edit()
+
+        assert edit.op == "write"
+        assert edit.path == "src/reports/export.py"
+
+    def test_write_is_the_default_operation(self) -> None:
+        edit = FileEdit.model_validate({"path": "README.md", "content": "hello"})
+
+        assert edit.op == "write"
+
+    def test_valid_delete_edit(self) -> None:
+        edit = make_file_edit(op="delete", content="")
+
+        assert edit.op == "delete"
+
+    def test_delete_must_not_carry_content(self) -> None:
+        with pytest.raises(ValidationError, match="delete edit must not carry content"):
+            make_file_edit(op="delete")
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/etc/passwd",  # POSIX absolute
+            "C:\\Windows\\system32",  # Windows absolute, backslashes
+            "src\\reports\\export.py",  # backslashes even when relative
+            "../outside.py",  # upward traversal
+            "src/../../outside.py",  # traversal hidden mid-path
+            "  ",
+        ],
+    )
+    def test_rejects_paths_that_escape_the_workspace(self, path: str) -> None:
+        """An edit that can point outside the workspace is a write-anywhere
+        primitive wearing an edit's clothes."""
+        with pytest.raises(ValidationError):
+            make_file_edit(path=path)
+
+    def test_json_round_trip(self) -> None:
+        original = make_file_edit()
+
+        restored = FileEdit.model_validate(original.model_dump(mode="json"))
+
+        assert restored == original
+
+
 def make_code_change(**overrides: object) -> CodeChange:
     payload: dict[str, object] = {
         "task_id": uuid.uuid4(),
         "branch": "feat/csv-export",
         "commit_sha": "a1b2c3d4e5f6",
         "files_changed": ("src/reports/export.py", "tests/test_export.py"),
+        "edits": (make_file_edit(),),
         "summary": "Added streaming CSV writer with row-chunked output.",
+        "pr_url": "https://github.com/example/reports/pull/7",
     }
     payload.update(overrides)
     return CodeChange.model_validate(payload)
@@ -131,6 +189,20 @@ class TestCodeChange:
         assert change.kind.value == "code_change"
         assert change.branch == "feat/csv-export"
         assert len(change.files_changed) == 2
+        assert change.edits[0].path == "src/reports/export.py"
+
+    def test_the_pre_apply_state_is_all_empty(self) -> None:
+        """Before the apply step runs, branch/sha/pr_url are unknown and the
+        edits are the whole claim - this is the shape the developer role
+        actually emits."""
+        change = CodeChange.model_validate(
+            {"task_id": uuid.uuid4(), "summary": "Will add the writer."}
+        )
+
+        assert change.branch == ""
+        assert change.commit_sha == ""
+        assert change.pr_url == ""
+        assert change.edits == ()
 
     @pytest.mark.parametrize("sha", ["a1b2c3", "x" * 41])
     def test_rejects_out_of_range_commit_sha(self, sha: str) -> None:
@@ -165,3 +237,5 @@ class TestCodeChange:
         assert restored.branch == original.branch
         assert restored.commit_sha == original.commit_sha
         assert restored.files_changed == original.files_changed
+        assert restored.edits == original.edits
+        assert restored.pr_url == original.pr_url

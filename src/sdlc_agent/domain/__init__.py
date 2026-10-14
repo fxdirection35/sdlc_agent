@@ -23,7 +23,7 @@ from sdlc_agent.domain.base import (
     Verdict,
     reject_blank,
 )
-from sdlc_agent.domain.engineering import CodeChange, Design, Task
+from sdlc_agent.domain.engineering import CodeChange, Design, FileEdit, Task
 from sdlc_agent.domain.product import AcceptanceCriterion, ProductRequirements, Requirement
 from sdlc_agent.domain.qa import (
     QualityGate,
@@ -104,6 +104,7 @@ __all__ = [
     "ArtifactKind",
     "CodeChange",
     "Design",
+    "FileEdit",
     "PipelineRole",
     "ProductRequirements",
     "QualityGate",

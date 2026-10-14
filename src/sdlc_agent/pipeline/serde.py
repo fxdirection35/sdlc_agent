@@ -27,6 +27,7 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
 from sdlc_agent.domain import ARTIFACT_TYPES
 from sdlc_agent.domain.base import ArtifactKind, PipelineRole, ReviewDecision, Verdict
+from sdlc_agent.domain.engineering import FileEdit
 from sdlc_agent.domain.product import AcceptanceCriterion
 from sdlc_agent.domain.qa import TestCaseResult, TestPlanItem, TestStatus
 from sdlc_agent.pipeline.state import AuditEvent, RunStatus, StageName
@@ -41,6 +42,7 @@ _STATE_TYPES: tuple[type, ...] = (
     *ARTIFACT_TYPES.values(),
     # Nested value objects inside artifacts.
     AcceptanceCriterion,
+    FileEdit,
     TestCaseResult,
     TestPlanItem,
     # Enums used as state values and as artifact dict keys.
